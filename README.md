@@ -16,4 +16,18 @@ The current vertical slice intentionally samples frames in the browser instead o
 
 ### How to Run ?
 
-- Just run `bun run dev` in the root of the repo, and it will start both the Bun server and the Python service concurrently. Then open `http://localhost:3000` in a browser that supports WebRTC and WebSockets, allow camera access, and you should see the live recognition overlay in action. The default enrollment set includes a few sample identities, but you can modify or expand it by adding new directories with face images and updating the corresponding `metadata.json` files.
+**Prerequisites:** `bun@1.4.0`, `uv` (`curl -LsSf https://astral.sh/uv/install.sh | sh`), `python>=3.14` (managed by `uv` via `apps/serve/.python-version`).
+
+**Setup (once, installs JS + Python deps):**
+```bash
+bun run setup   # = bun install + uv sync --frozen (see scripts/setup.sh)
+```
+
+**Run:**
+```bash
+bun run dev        # setup-check + starts both services via turbo (web :3000, serve :8765)
+# or for fast restart after initial setup:
+bun run dev:quick
+```
+
+Then open `http://localhost:3000`, allow camera access, and you should see the live recognition overlay. The default enrollment set is synced from `https://r2-mira.singularityworks.xyz`; you can add identities via the UI (requires `MIRA_R2_*` env - see `apps/web/.env.example`) or extend enrollment directly.
