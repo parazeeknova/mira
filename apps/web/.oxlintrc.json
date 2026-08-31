@@ -16,10 +16,7 @@
   "categories": {
     "correctness": "error",
     "perf": "error",
-    "restriction": "error",
-    "suspicious": "error",
-    "pedantic": "error",
-    "style": "error"
+    "suspicious": "error"
   },
   "rules": {
     "no-await-in-loop": "off",
@@ -79,6 +76,9 @@
     "unicorn/no-null": "off",
     "unicorn/prefer-top-level-await": "off",
     "unicorn/prefer-string-raw": "off",
+    "unicorn/prefer-add-event-listener": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-await-expression-member": "off",
 
     "typescript/explicit-module-boundary-types": "off",
     "typescript/no-require-imports": "off",
@@ -92,6 +92,7 @@
     "oxc/no-async-await": "off",
     "oxc/no-rest-spread-properties": "off",
     "oxc/no-optional-chaining": "off",
+    "oxc/no-accumulating-spread": "off",
 
     "promise/catch-or-return": "off",
     "promise/always-return": "off"

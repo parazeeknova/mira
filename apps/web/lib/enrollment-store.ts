@@ -28,50 +28,45 @@ interface EnrollmentStoreConfig {
 }
 
 const MANIFEST_KEY = "manifest.json",
+  createClient = (): EnrollmentStoreConfig | null => {
+    const bucket = Bun.env["MIRA_R2_BUCKET"],
+      endpoint = Bun.env["MIRA_R2_ENDPOINT"],
+      accessKeyId = Bun.env["MIRA_R2_ACCESS_KEY_ID"],
+      secretAccessKey = Bun.env["MIRA_R2_SECRET_ACCESS_KEY"];
 
- createClient = (): EnrollmentStoreConfig | null => {
-  const bucket = Bun.env["MIRA_R2_BUCKET"],
-   endpoint = Bun.env["MIRA_R2_ENDPOINT"],
-   accessKeyId = Bun.env["MIRA_R2_ACCESS_KEY_ID"],
-   secretAccessKey = Bun.env["MIRA_R2_SECRET_ACCESS_KEY"];
+    if (
+      bucket === undefined ||
+      endpoint === undefined ||
+      accessKeyId === undefined ||
+      secretAccessKey === undefined
+    ) {
+      return null;
+    }
 
-  if (
-    bucket === undefined ||
-    endpoint === undefined ||
-    accessKeyId === undefined ||
-    secretAccessKey === undefined
-  ) {
-    return null;
-  }
-
-  return {
-    bucket,
-    client: new S3Client({
-      accessKeyId,
+    return {
       bucket,
-      endpoint,
-      region: "auto",
-      secretAccessKey,
-    }),
-  };
-},
-
- storeConfig = createClient(),
-
- getStoreConfig = (): EnrollmentStoreConfig => {
-  if (storeConfig === null) {
-    throw new Error("R2 enrollment storage is not configured.");
-  }
-  return storeConfig;
-},
-
- sortManifest = (manifest: EnrollmentManifest): EnrollmentManifest => ({
-  identities: manifest.identities.toSorted((left, right) =>
-    left.id.localeCompare(right.id)
-  ),
-}),
-
- fileFor = (key: string) => getStoreConfig().client.file(key);
+      client: new S3Client({
+        accessKeyId,
+        bucket,
+        endpoint,
+        region: "auto",
+        secretAccessKey,
+      }),
+    };
+  },
+  storeConfig = createClient(),
+  getStoreConfig = (): EnrollmentStoreConfig => {
+    if (storeConfig === null) {
+      throw new Error("R2 enrollment storage is not configured.");
+    }
+    return storeConfig;
+  },
+  sortManifest = (manifest: EnrollmentManifest): EnrollmentManifest => ({
+    identities: manifest.identities.toSorted((left, right) =>
+      left.id.localeCompare(right.id)
+    ),
+  }),
+  fileFor = (key: string) => getStoreConfig().client.file(key);
 
 export const isEnrollmentStoreConfigured = (): boolean => storeConfig !== null;
 
@@ -95,32 +90,28 @@ export const readManifest = async (): Promise<EnrollmentManifest> => {
 };
 
 const writeManifest = async (manifest: EnrollmentManifest): Promise<void> => {
-  await write(fileFor(MANIFEST_KEY), JSON.stringify(sortManifest(manifest)));
-},
-
- deleteKeys = async (keys: string[]): Promise<void> => {
-  for (const key of keys) {
-    await fileFor(key).delete();
-  }
-},
-
- normalizeMetadata = (
-  metadata: EnrollmentMetadata
-): EnrollmentMetadata => ({
-  color: metadata.color,
-  ...(metadata.email === undefined ? {} : { email: metadata.email }),
-  ...(metadata.githubUsername === undefined
-    ? {}
-    : { githubUsername: metadata.githubUsername }),
-  ...(metadata.linkedinId === undefined
-    ? {}
-    : { linkedinId: metadata.linkedinId }),
-  name: metadata.name,
-  ...(metadata.phoneNumber === undefined
-    ? {}
-    : { phoneNumber: metadata.phoneNumber }),
-  ...(metadata.worksAt === undefined ? {} : { worksAt: metadata.worksAt }),
-});
+    await write(fileFor(MANIFEST_KEY), JSON.stringify(sortManifest(manifest)));
+  },
+  deleteKeys = async (keys: string[]): Promise<void> => {
+    for (const key of keys) {
+      await fileFor(key).delete();
+    }
+  },
+  normalizeMetadata = (metadata: EnrollmentMetadata): EnrollmentMetadata => ({
+    color: metadata.color,
+    ...(metadata.email === undefined ? {} : { email: metadata.email }),
+    ...(metadata.githubUsername === undefined
+      ? {}
+      : { githubUsername: metadata.githubUsername }),
+    ...(metadata.linkedinId === undefined
+      ? {}
+      : { linkedinId: metadata.linkedinId }),
+    name: metadata.name,
+    ...(metadata.phoneNumber === undefined
+      ? {}
+      : { phoneNumber: metadata.phoneNumber }),
+    ...(metadata.worksAt === undefined ? {} : { worksAt: metadata.worksAt }),
+  });
 
 export const listEnrollmentIdentities = async (): Promise<
   EnrollmentManifestIdentity[]
@@ -153,12 +144,12 @@ export const upsertEnrollmentIdentity = async (
   files: File[]
 ): Promise<EnrollmentManifestIdentity[]> => {
   const manifest = await readManifest(),
-   existing = manifest.identities.find(
-    (identity) => identity.id === metadata.id
-  ),
-   nextFiles = files.map((file) => file.name),
-   staleFiles =
-    existing?.files.filter((filename) => !nextFiles.includes(filename)) ?? [];
+    existing = manifest.identities.find(
+      (identity) => identity.id === metadata.id
+    ),
+    nextFiles = files.map((file) => file.name),
+    staleFiles =
+      existing?.files.filter((filename) => !nextFiles.includes(filename)) ?? [];
 
   await Promise.all(
     files.map(async (file) => {
@@ -178,14 +169,13 @@ export const upsertEnrollmentIdentity = async (
   }
 
   const nextIdentity: EnrollmentManifestIdentity = {
-    files: nextFiles,
-    id: metadata.id,
-    metadata: normalizeMetadata(metadata),
-  },
-
-   identities = manifest.identities.filter(
-    (identity) => identity.id !== metadata.id
-  );
+      files: nextFiles,
+      id: metadata.id,
+      metadata: normalizeMetadata(metadata),
+    },
+    identities = manifest.identities.filter(
+      (identity) => identity.id !== metadata.id
+    );
   identities.push(nextIdentity);
   await writeManifest({ identities });
   return listEnrollmentIdentities();
@@ -196,12 +186,12 @@ export const upsertEnrollmentIdentityPayload = async (
   files: PythonAdminIdentityFile[]
 ): Promise<EnrollmentManifestIdentity[]> => {
   const manifest = await readManifest(),
-   existing = manifest.identities.find(
-    (identity) => identity.id === metadata.id
-  ),
-   nextFiles = files.map((file) => file.name),
-   staleFiles =
-    existing?.files.filter((filename) => !nextFiles.includes(filename)) ?? [];
+    existing = manifest.identities.find(
+      (identity) => identity.id === metadata.id
+    ),
+    nextFiles = files.map((file) => file.name),
+    staleFiles =
+      existing?.files.filter((filename) => !nextFiles.includes(filename)) ?? [];
 
   await Promise.all(
     files.map(async (file) => {
@@ -240,9 +230,9 @@ export const updateEnrollmentIdentityMetadata = async (
   metadata: EnrollmentMetadata
 ): Promise<EnrollmentManifestIdentity[]> => {
   const manifest = await readManifest(),
-   existing = manifest.identities.find(
-    (identity) => identity.id === identityId
-  );
+    existing = manifest.identities.find(
+      (identity) => identity.id === identityId
+    );
   if (existing === undefined) {
     throw new Error(`Identity '${identityId}' was not found.`);
   }
@@ -269,9 +259,9 @@ export const deleteEnrollmentIdentity = async (
   identityId: string
 ): Promise<EnrollmentManifestIdentity[]> => {
   const manifest = await readManifest(),
-   existing = manifest.identities.find(
-    (identity) => identity.id === identityId
-  );
+    existing = manifest.identities.find(
+      (identity) => identity.id === identityId
+    );
   if (existing === undefined) {
     return manifest.identities;
   }

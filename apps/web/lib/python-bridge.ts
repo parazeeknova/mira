@@ -62,30 +62,28 @@ interface PendingAdminRequest {
 }
 
 const DISCONNECTED_STATUS: PythonStatus = {
-  connected: false,
-  detail: "Waiting for Python inference service",
-  ready: null,
-  reconnecting: false,
-},
-
- AUTO_ENROLL_DUPLICATE_GUARD = 0.4,
- AUTO_ENROLL_MAX_TRACK_STALENESS_MS = 4000,
- AUTO_ENROLL_MIN_HITS = 6,
- AUTO_ENROLL_MIN_MS = 1500,
- MAX_CACHED_FRAMES_PER_SESSION = 4,
-
- normalizePythonWebSocketUrl = (url: string): string => {
-  if (url.startsWith("ws://") || url.startsWith("wss://")) {
+    connected: false,
+    detail: "Waiting for Python inference service",
+    ready: null,
+    reconnecting: false,
+  },
+  AUTO_ENROLL_DUPLICATE_GUARD = 0.4,
+  AUTO_ENROLL_MAX_TRACK_STALENESS_MS = 4000,
+  AUTO_ENROLL_MIN_HITS = 6,
+  AUTO_ENROLL_MIN_MS = 1500,
+  MAX_CACHED_FRAMES_PER_SESSION = 4,
+  normalizePythonWebSocketUrl = (url: string): string => {
+    if (url.startsWith("ws://") || url.startsWith("wss://")) {
+      return url;
+    }
+    if (url.startsWith("http://")) {
+      return `ws://${url.slice("http://".length)}`;
+    }
+    if (url.startsWith("https://")) {
+      return `wss://${url.slice("https://".length)}`;
+    }
     return url;
-  }
-  if (url.startsWith("http://")) {
-    return `ws://${url.slice("http://".length)}`;
-  }
-  if (url.startsWith("https://")) {
-    return `wss://${url.slice("https://".length)}`;
-  }
-  return url;
-};
+  };
 
 export class PythonBridge {
   private autoIdentityCounter = 0;
@@ -146,21 +144,21 @@ export class PythonBridge {
     ok: boolean;
   }> {
     const { promise, resolve } = Promise.withResolvers<{
-      changed: boolean;
-      enrollment?: PythonServiceReadyMessage["enrollment"];
-      ok: boolean;
-    }>(),
-     request: PendingAdminRequest = {
-      payload,
-      resolve,
-      sent: false,
-      timeoutId: setTimeout(() => {
-        this.resolvePendingAdminRequest(request, {
-          changed: false,
-          ok: false,
-        });
-      }, 5000),
-    };
+        changed: boolean;
+        enrollment?: PythonServiceReadyMessage["enrollment"];
+        ok: boolean;
+      }>(),
+      request: PendingAdminRequest = {
+        payload,
+        resolve,
+        sent: false,
+        timeoutId: setTimeout(() => {
+          this.resolvePendingAdminRequest(request, {
+            changed: false,
+            ok: false,
+          });
+        }, 5000),
+      };
 
     this.pendingAdminRequests.push(request);
     this.ensureConnection();
@@ -418,7 +416,7 @@ export class PythonBridge {
       }
 
       const now = Date.now(),
-       pending = this.pendingUnknownTracks.get(trackKey);
+        pending = this.pendingUnknownTracks.get(trackKey);
       if (pending?.createdIdentity !== undefined) {
         pending.lastSeenMs = now;
         continue;
@@ -488,7 +486,7 @@ export class PythonBridge {
   private createAutoIdentity(): Omit<IdentityMetadataPayload, "syncStatus"> {
     this.autoIdentityCounter += 1;
     const suffix = `${Date.now().toString(36)}-${this.autoIdentityCounter.toString(36)}`,
-     id = `person-${suffix}`;
+      id = `person-${suffix}`;
     return {
       color: "#ffffff",
       id,
@@ -546,17 +544,17 @@ export class PythonBridge {
     }
 
     const paddingX = Math.round(bbox.width * 0.18),
-     paddingY = Math.round(bbox.height * 0.22),
-     left = Math.max(0, Math.floor(bbox.x - paddingX)),
-     top = Math.max(0, Math.floor(bbox.y - paddingY)),
-     width = Math.min(
-      frame.width - left,
-      Math.ceil(bbox.width + paddingX * 2)
-    ),
-     height = Math.min(
-      frame.height - top,
-      Math.ceil(bbox.height + paddingY * 2)
-    );
+      paddingY = Math.round(bbox.height * 0.22),
+      left = Math.max(0, Math.floor(bbox.x - paddingX)),
+      top = Math.max(0, Math.floor(bbox.y - paddingY)),
+      width = Math.min(
+        frame.width - left,
+        Math.ceil(bbox.width + paddingX * 2)
+      ),
+      height = Math.min(
+        frame.height - top,
+        Math.ceil(bbox.height + paddingY * 2)
+      );
     if (width <= 0 || height <= 0) {
       throw new Error("Auto enrollment crop was empty.");
     }
