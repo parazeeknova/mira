@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mira</title>
+    <link rel="icon" type="image/svg+xml" href="/mira.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="stage">
+      <video id="camera-feed" autoplay muted playsinline></video>
+      <canvas id="overlay-canvas"></canvas>
+      <canvas id="capture-canvas" hidden></canvas>
+
+      <details id="menu-shell" class="menu-shell">
+        <summary
+          id="menu-toggle"
+          class="menu-button"
+          aria-label="Open controls"
+        >
+          <img
+            class="menu-logo"
+            src="/mira.svg"
+            alt="Mira"
+            width="20"
+            height="20"
+          />
+        </summary>
+
+        <section id="options-panel" class="options-panel">
+          <div class="option-row">
+            <span class="option-label">Connection</span>
+            <strong id="connection-value">offline</strong>
+          </div>
+
+          <div class="option-row">
+            <span class="option-label">Frames</span>
+            <strong id="frame-counter">0 frames</strong>
+          </div>
+
+          <div class="option-row">
+            <span class="option-label">Latency</span>
+            <strong id="latency-chip">0 ms</strong>
+          </div>
+
+          <div class="option-row">
+            <span class="option-label">Camera</span>
+            <button
+              id="camera-flip-button"
+              class="tiny-button ghost-button"
+              type="button"
+            >
+              flip
+            </button>
+          </div>
+
+          <label class="option-group slider-group">
+            <span class="option-label">Sampling interval</span>
+            <input
+              id="interval-input"
+              type="range"
+              min="40"
+              max="500"
+              value="80"
+              step="10"
+            />
+            <strong id="interval-value">80 ms</strong>
+          </label>
+
+          <label class="option-group slider-group">
+            <span class="option-label">JPEG quality</span>
+            <input
+              id="quality-input"
+              type="range"
+              min="40"
+              max="95"
+              value="50"
+              step="1"
+            />
+            <strong id="quality-value">0.50</strong>
+          </label>
+
+          <div class="option-row">
+            <span class="option-label">Providers</span>
+            <strong id="providers-value">pending</strong>
+          </div>
+
+          <div class="option-row">
+            <span class="option-label">Tracking</span>
+            <strong id="tracking-value">pending</strong>
+          </div>
+
+          <div class="option-row">
+            <span class="option-label">Enrollment</span>
+            <strong id="enrollment-value">pending</strong>
+          </div>
+
+          <div class="option-row">
+            <span class="option-label">Index version</span>
+            <strong id="index-value">pending</strong>
+          </div>
+
+          <form id="enrollment-form" class="option-group form-group">
+            <span class="option-label">Enroll identity</span>
+            <input
+              id="identity-name-input"
+              class="tiny-input"
+              type="text"
+              name="name"
+              placeholder="name"
+              required
+            />
+            <input
+              id="identity-works-at-input"
+              class="tiny-input"
+              type="text"
+              name="worksAt"
+              placeholder="works at"
+            />
+            <input
+              id="identity-color-input"
+              class="tiny-input"
+              type="text"
+              name="color"
+              placeholder="#4ee3ff"
+              value="#4ee3ff"
+              required
+            />
+            <input
+              id="identity-linkedin-input"
+              class="tiny-input"
+              type="text"
+              name="linkedinId"
+              placeholder="linkedin id"
+            />
+            <input
+              id="identity-github-input"
+              class="tiny-input"
+              type="text"
+              name="githubUsername"
+              placeholder="github username"
+            />
+            <input
+              id="identity-email-input"
+              class="tiny-input"
+              type="email"
+              name="email"
+              placeholder="email"
+            />
+            <input
+              id="identity-phone-input"
+              class="tiny-input"
+              type="tel"
+              name="phoneNumber"
+              placeholder="phone number"
+            />
+            <input
+              id="identity-files-input"
+              class="tiny-input"
+              type="file"
+              name="files"
+              accept=".jpg,.jpeg,.png,.webp"
+              multiple
+            />
+            <button id="enroll-submit-button" class="tiny-button" type="submit">
+              Upload
+            </button>
+            <small id="enrollment-status" class="option-note">idle</small>
+          </form>
+
+          <div class="option-group">
+            <span class="option-label">Stored identities</span>
+            <div id="enrollment-list" class="identity-list"></div>
+          </div>
+
+          <div class="option-group">
+            <span class="option-label">Enrollment diagnostics</span>
+            <div id="enrollment-diagnostics" class="identity-list"></div>
+          </div>
+        </section>
+      </details>
+    </main>
+
+    <script type="module" src="/client.js"></script>
+  </body>
+</html>
