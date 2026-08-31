@@ -1,0 +1,25 @@
+{
+  "name": "mira",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "build:serve": "turbo run build --filter=@mira/serve",
+    "build:web": "turbo run build --filter=@mira/web",
+    "dev": "turbo run dev",
+    "check": "turbo run check",
+    "check-types": "turbo run check-types",
+    "docker:build:serve": "docker build -f apps/serve/Dockerfile apps/serve -t mira-serve",
+    "docker:build:web": "docker build -f apps/web/Dockerfile apps/web -t mira-web",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "lefthook": "^2.1.4",
+    "turbo": "^2.9.1",
+    "typescript": "^6.0.2"
+  },
+  "packageManager": "bun@1.3.11"
+}
