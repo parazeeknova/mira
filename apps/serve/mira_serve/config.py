@@ -38,6 +38,15 @@ class Settings:
     face_crop_padding_y: float
     google_vision_enabled: bool
     google_vision_max_results: int
+    # --- FaceCheck.id (engine 4) ---
+    facecheck_api_token: str | None = None
+    facecheck_max_results: int = 8
+    facecheck_demo: bool = False
+    # --- Pipeline thresholds ---
+    cosine_threshold: float = 0.35
+    # --- Cache (Stage 2 / 5b) ---
+    cache_threshold: float = 0.60
+    cache_db_path: str = "../../data/mira_cache.db"
 
     @property
     def detector_size(self) -> tuple[int, int]:
@@ -112,4 +121,10 @@ def load_settings() -> Settings:
         google_vision_enabled=os.getenv("GOOGLE_VISION_ENABLED", "true").lower()
         == "true",
         google_vision_max_results=int(os.getenv("GOOGLE_VISION_MAX_RESULTS", "5")),
+        facecheck_api_token=os.getenv("FACECHECK_API_TOKEN") or None,
+        facecheck_max_results=int(os.getenv("FACECHECK_MAX_RESULTS", "8")),
+        facecheck_demo=os.getenv("FACECHECK_DEMO", "false").lower() == "true",
+        cosine_threshold=float(os.getenv("COSINE_THRESHOLD", "0.35")),
+        cache_threshold=float(os.getenv("CACHE_THRESHOLD", "0.60")),
+        cache_db_path=os.getenv("CACHE_DB_PATH", "../../data/mira_cache.db"),
     )
