@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import http
 import logging
@@ -16,7 +17,8 @@ from mira_serve import (
     install_runtime_compatibility_patches,
     load_settings,
 )
-from mira_serve.protocol import dumps
+from mira_serve.pipeline import NoFaceFoundError, Pipeline
+from mira_serve.protocol import dumps, parse_message
 
 
 class IgnoreInvalidUpgradeFilter(logging.Filter):
@@ -27,19 +29,84 @@ class IgnoreInvalidUpgradeFilter(logging.Filter):
 async def handle_connection(
     websocket: ServerConnection,
     service: FaceRecognitionService,
+    pipeline: Pipeline,
 ) -> None:
     try:
         await websocket.send(dumps(service.ready_message()))
 
         async for message in websocket:
-            response = await service.handle_raw_message(message)
-            await websocket.send(response)
+            try:
+                payload = parse_message(message)
+            except Exception:
+                response = await service.handle_raw_message(message)
+                await websocket.send(response)
+                continue
+
+            if payload.get("type") == "pipeline.run":
+                response = await _handle_pipeline_run(payload, pipeline)
+                await websocket.send(response)
+            else:
+                response = await service.handle_raw_message(message)
+                await websocket.send(response)
     except ConnectionClosedOK:
         return
     except ConnectionClosedError as error:
         print(
             "Mira serve websocket closed unexpectedly: "
             f"code={error.code} reason={error.reason!r}"
+        )
+
+
+async def _handle_pipeline_run(payload: dict[str, object], pipeline: Pipeline) -> str:
+    session_id = payload.get("sessionId")
+    session_str = session_id if isinstance(session_id, str) else ""
+
+    try:
+        image_field = payload.get("image")
+        if not isinstance(image_field, dict):
+            raise ValueError("Missing image field")
+
+        data_field = image_field.get("data")  # type: ignore[attr-defined]
+        if not isinstance(data_field, str) or not data_field:
+            raise ValueError("Missing image data")
+
+        image_bytes = base64.b64decode(data_field)
+        result = await pipeline.run(image_bytes)
+
+        return dumps(
+            {
+                "type": "pipeline.result",
+                "sessionId": session_str,
+                "face": {
+                    "bbox": result.face.bbox,
+                    "confidence": result.face.confidence,
+                },
+                "results": [r.to_protocol_dict() for r in result.results],
+                "anchorStrategy": result.anchor_strategy,
+                "enginesUsed": result.engines_used,
+            }
+        )
+    except NoFaceFoundError as exc:
+        return dumps(
+            {
+                "type": "pipeline.result",
+                "sessionId": session_str,
+                "error": str(exc),
+                "results": [],
+                "anchorStrategy": "none",
+                "enginesUsed": [],
+            }
+        )
+    except Exception as exc:
+        return dumps(
+            {
+                "type": "pipeline.result",
+                "sessionId": session_str,
+                "error": f"{exc.__class__.__name__}: {exc}",
+                "results": [],
+                "anchorStrategy": "none",
+                "enginesUsed": [],
+            }
         )
 
 
@@ -73,13 +140,14 @@ async def main() -> None:
     install_runtime_compatibility_patches()
     settings = load_settings()
     service = FaceRecognitionService(settings)
+    pipeline = Pipeline(service, settings)
     websocket_logger = logging.getLogger("mira_serve.websockets")
     websocket_logger.addFilter(IgnoreInvalidUpgradeFilter())
     await service.start()
 
     try:
         async with serve(
-            lambda websocket: handle_connection(websocket, service),
+            lambda websocket: handle_connection(websocket, service, pipeline),
             settings.host,
             settings.port,
             logger=websocket_logger,
@@ -98,6 +166,8 @@ async def main() -> None:
     finally:
         with contextlib.suppress(asyncio.CancelledError):
             await service.stop()
+        with contextlib.suppress(Exception):
+            await pipeline.aclose()
 
 
 if __name__ == "__main__":
