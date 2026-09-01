@@ -73,6 +73,13 @@ class FaceRecognitionService:
         self._reload_task: asyncio.Task[None] | None = None
         self._sync_warning: str | None = None
 
+    @property
+    def analysis(self) -> FaceAnalysis:
+        return self._analysis
+
+    def decode_image_bytes(self, data: bytes) -> np.ndarray:
+        return self._decode_image_bytes(data)
+
     async def start(self) -> None:
         if self._settings.enrollment_sync_enabled:
             await self._sync_remote_enrollment()
