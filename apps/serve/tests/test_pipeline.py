@@ -178,6 +178,11 @@ async def test_pipeline_run_embedding_fallback_when_search_empty() -> None:
 
     service = _make_dummy_service(faces=[fake_face])
     pipeline = Pipeline(service, settings)
+    # Isolate from real cache/DB and similarity (unit test of search→fallback path)
+    pipeline._cache = MagicMock()
+    pipeline._cache.lookup.return_value = None
+    pipeline._cache.write = MagicMock()
+    pipeline._similarity = None  # type: ignore[assignment]
 
     from unittest.mock import AsyncMock
 
@@ -206,6 +211,10 @@ async def test_pipeline_run_search_success() -> None:
 
     service = _make_dummy_service(faces=[fake_face])
     pipeline = Pipeline(service, settings)
+    pipeline._cache = MagicMock()
+    pipeline._cache.lookup.return_value = None
+    pipeline._cache.write = MagicMock()
+    pipeline._similarity = None  # type: ignore[assignment]
 
     mock_result = SearchResult(
         url="https://twitter.com/test",

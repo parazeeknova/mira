@@ -84,6 +84,7 @@ async def _handle_pipeline_run(payload: dict[str, object], pipeline: Pipeline) -
                 "results": [r.to_protocol_dict() for r in result.results],
                 "anchorStrategy": result.anchor_strategy,
                 "enginesUsed": result.engines_used,
+                "cacheHit": bool(result.cache_hit),
             }
         )
     except NoFaceFoundError as exc:
@@ -95,6 +96,7 @@ async def _handle_pipeline_run(payload: dict[str, object], pipeline: Pipeline) -
                 "results": [],
                 "anchorStrategy": "none",
                 "enginesUsed": [],
+                "cacheHit": False,
             }
         )
     except Exception as exc:
@@ -106,6 +108,7 @@ async def _handle_pipeline_run(payload: dict[str, object], pipeline: Pipeline) -
                 "results": [],
                 "anchorStrategy": "none",
                 "enginesUsed": [],
+                "cacheHit": False,
             }
         )
 
