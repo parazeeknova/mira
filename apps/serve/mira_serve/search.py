@@ -785,36 +785,81 @@ class ReverseImageSearch:
     def _attach_multi_source(
         self, merged: list[SearchResult], all_lists: list[list[SearchResult]]
     ) -> list[SearchResult]:
-        """Compute multi_source_count per URL (distinct engines) and attach to survivors."""
+        """Compute multi_source_count per URL (distinct engines) and attach to survivors.
+        Also enriches survivors with the best metadata from their duplicates
+        (image_url especially — the winning engine often lacks the thumbnail
+        a duplicate carries, which would force a doomed HTML download later).
+        """
         if not merged:
             return merged
         url_to_engines: dict[str, set[str]] = {}
+        url_to_best: dict[str, SearchResult] = {}
         for lst in all_lists:
             for item in lst:
                 url_to_engines.setdefault(item.url, set()).add(item.engine)
+                cur = url_to_best.get(item.url)
+                if cur is None:
+                    url_to_best[item.url] = item
+                    continue
+                # prefer entries that carry a direct image URL / richer fields
+                if (item.image_url and not cur.image_url) or (
+                    item.image_url
+                    and cur.image_url
+                    and len(item.image_url) > len(cur.image_url)
+                ):
+                    cur = item
+                if (item.title and not cur.title) or (item.snippet and not cur.snippet):
+                    cur = SearchResult(
+                        url=cur.url,
+                        platform=cur.platform,
+                        title=cur.title or item.title,
+                        snippet=cur.snippet or item.snippet,
+                        image_url=cur.image_url,
+                        fetched_at=cur.fetched_at,
+                        source_strategy=cur.source_strategy,
+                        engine=cur.engine,
+                        base64=cur.base64,
+                        facecheck_score=cur.facecheck_score,
+                        has_image=cur.has_image,
+                        multi_source_count=cur.multi_source_count,
+                        similarity=cur.similarity,
+                        final_score=cur.final_score,
+                    )
+                url_to_best[item.url] = cur
+
         out: list[SearchResult] = []
         for item in merged:
             count = len(url_to_engines.get(item.url, {item.engine}))
-            if count == item.multi_source_count:
+            best = url_to_best.get(item.url, item)
+            # effective image_url: survivor's own, else the best duplicate's
+            eff_image = item.image_url or best.image_url
+            eff_title = item.title or best.title
+            eff_snippet = item.snippet or best.snippet
+            changed = (
+                count != item.multi_source_count
+                or eff_image != item.image_url
+                or eff_title != item.title
+                or eff_snippet != item.snippet
+            )
+            if not changed:
                 out.append(item)
-            else:
-                # Reconstruct with updated count (frozen dataclass)
-                out.append(
-                    SearchResult(
-                        url=item.url,
-                        platform=item.platform,
-                        title=item.title,
-                        snippet=item.snippet,
-                        image_url=item.image_url,
-                        fetched_at=item.fetched_at,
-                        source_strategy=item.source_strategy,
-                        engine=item.engine,
-                        base64=item.base64,
-                        facecheck_score=item.facecheck_score,
-                        has_image=item.has_image,
-                        multi_source_count=count,
-                        similarity=item.similarity,
-                        final_score=item.final_score,
-                    )
+                continue
+            out.append(
+                SearchResult(
+                    url=item.url,
+                    platform=item.platform,
+                    title=eff_title,
+                    snippet=eff_snippet,
+                    image_url=eff_image,
+                    fetched_at=item.fetched_at,
+                    source_strategy=item.source_strategy,
+                    engine=item.engine,
+                    base64=item.base64,
+                    facecheck_score=item.facecheck_score,
+                    has_image=item.has_image,
+                    multi_source_count=count,
+                    similarity=item.similarity,
+                    final_score=item.final_score,
                 )
+            )
         return out

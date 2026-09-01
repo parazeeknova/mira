@@ -194,3 +194,61 @@ def test_attach_multi_source_preserves_other_fields() -> None:
     assert out[0].multi_source_count == 2
     assert out[0].url == r1.url
     assert out[0].platform == r1.platform
+
+
+def test_attach_multi_source_enriches_image_url_from_duplicate() -> None:
+    """Survivor without image_url inherits the duplicate's thumbnail."""
+    settings = _make_settings()
+    search = ReverseImageSearch(settings)
+    survivor = SearchResult(
+        url="https://example.com/a",
+        platform="web",
+        title="S",
+        snippet=None,
+        image_url=None,
+        fetched_at=1,
+        source_strategy="google-vision",
+        engine="google-vision",
+    )
+    dup = SearchResult(
+        url="https://example.com/a",
+        platform="web",
+        title="D",
+        snippet="ds",
+        image_url="https://img.example.com/thumb.jpg",
+        fetched_at=2,
+        source_strategy="serpapi",
+        engine="google_lens",
+    )
+    out = search._attach_multi_source([survivor], [[survivor], [dup], [], []])
+    assert out[0].image_url == "https://img.example.com/thumb.jpg"
+    assert out[0].title == "S"  # survivor title kept
+    assert out[0].multi_source_count == 2
+
+
+def test_attach_multi_source_fills_missing_title_and_snippet() -> None:
+    settings = _make_settings()
+    search = ReverseImageSearch(settings)
+    survivor = SearchResult(
+        url="https://example.com/a",
+        platform="web",
+        title=None,
+        snippet=None,
+        image_url=None,
+        fetched_at=1,
+        source_strategy="google-vision",
+        engine="google-vision",
+    )
+    dup = SearchResult(
+        url="https://example.com/a",
+        platform="web",
+        title="Dup Title",
+        snippet="Dup snippet",
+        image_url=None,
+        fetched_at=2,
+        source_strategy="serpapi",
+        engine="google_lens",
+    )
+    out = search._attach_multi_source([survivor], [[survivor], [dup], [], []])
+    assert out[0].title == "Dup Title"
+    assert out[0].snippet == "Dup snippet"
