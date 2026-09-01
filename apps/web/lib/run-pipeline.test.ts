@@ -90,13 +90,19 @@ const makeResult = (sessionId: string) => ({
 });
 
 describe("runPipeline", () => {
-  test("rejects immediately when upstream is not open", async () => {
+  test("queues when socket is CONNECTING, flushes once OPEN", async () => {
     stubGlobalWebSocket();
     const bridge = new PythonBridge("ws://127.0.0.1:1");
-    // Upstream exists but stuck in CONNECTING → not open → immediate reject.
     (bridge as unknown as { ensureConnection(): void }).ensureConnection();
-    const err = await rejectionOf(bridge.runPipeline("s1", IMG, 500));
-    expect(err).toBeInstanceOf(PythonDisconnectedError);
+    // Socket is CONNECTING → request must be queued, not rejected.
+    const pending = bridge.runPipeline("s1", IMG, 500);
+    const fake = (bridge as unknown as { upstream: FakeUpstream }).upstream;
+    fake.open();
+    const sent = JSON.parse(fake.sent[0]!);
+    expect(sent.type).toBe("pipeline.run");
+    fake.emit(JSON.stringify(makeResult("s1")));
+    const result = (await pending) as unknown as { sessionId: string };
+    expect(result.sessionId).toBe("s1");
   });
 
   test("sends pipeline.run message with session and image", async () => {

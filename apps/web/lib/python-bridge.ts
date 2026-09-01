@@ -49,8 +49,10 @@ export class PipelineBusyError extends Error {
 }
 
 interface PendingPipelineRequest {
+  image: PipelineImage;
   reject: (error: Error) => void;
   resolve: (result: PythonPipelineResultMessage) => void;
+  sent: boolean;
   timeoutId: ReturnType<typeof setTimeout>;
 }
 
@@ -276,8 +278,10 @@ export class PythonBridge {
     const { promise, resolve, reject } =
       Promise.withResolvers<PythonPipelineResultMessage>();
     const request: PendingPipelineRequest = {
-      resolve,
+      image,
       reject,
+      resolve,
+      sent: false,
       timeoutId: setTimeout(() => {
         this.pendingPipelineRequests.delete(sessionId);
         reject(new PipelineTimeoutError(timeoutMs));
@@ -285,25 +289,29 @@ export class PythonBridge {
     };
 
     this.pendingPipelineRequests.set(sessionId, request);
+    this.ensureConnection();
+    this.flushPipelineRequest(sessionId);
+    return promise;
+  }
 
-    if (this.upstream?.readyState !== WebSocket.OPEN) {
-      // Ensure a connection attempt is started; the request is flushed when
-      // the connection opens (or rejected if the socket closes first).
-      this.ensureConnection();
-      this.pendingPipelineRequests.delete(sessionId);
-      clearTimeout(request.timeoutId);
-      reject(new PythonDisconnectedError());
-      return promise;
+  private flushPipelineRequest(sessionId: string): void {
+    const request = this.pendingPipelineRequests.get(sessionId);
+    if (
+      request === undefined ||
+      request.sent ||
+      this.upstream?.readyState !== WebSocket.OPEN
+    ) {
+      return;
     }
 
+    request.sent = true;
     this.upstream.send(
       stringifyMessage({
-        image,
+        image: request.image,
         sessionId,
         type: "pipeline.run",
       } satisfies PythonPipelineRunMessage)
     );
-    return promise;
   }
 
   private rejectAllPendingPipelineRequests(error: Error): void {
@@ -385,6 +393,9 @@ export class PythonBridge {
         reconnecting: false,
       });
       this.flushAdminRequests();
+      for (const sessionId of this.pendingPipelineRequests.keys()) {
+        this.flushPipelineRequest(sessionId);
+      }
       for (const sessionId of this.sessions.keys()) {
         this.flushSession(sessionId);
       }
