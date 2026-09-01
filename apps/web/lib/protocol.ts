@@ -155,6 +155,67 @@ export interface PythonAdminResultMessage {
   type: "admin.result";
 }
 
+export type PipelinePlatform =
+  | "instagram"
+  | "linkedin"
+  | "none"
+  | "reddit"
+  | "twitter"
+  | "web";
+
+export type PipelineEngine =
+  | "embedding-fallback"
+  | "facecheck"
+  | "google-vision"
+  | "google_lens"
+  | "yandex";
+
+export interface PipelineImage {
+  data: string;
+  height: number;
+  mimeType: "image/jpeg";
+  width: number;
+}
+
+export interface PythonPipelineRunMessage {
+  image: PipelineImage;
+  sessionId: string;
+  type: "pipeline.run";
+}
+
+export interface PipelineCandidateResult {
+  engine: PipelineEngine;
+  fetchedAt: number;
+  finalScore: number | null;
+  imageUrl: string | null;
+  multiSourceCount: number;
+  platform: PipelinePlatform;
+  similarity: number | null;
+  snippet: string | null;
+  sourceStrategy:
+    | "embedding-fallback"
+    | "facecheck"
+    | "google-vision"
+    | "serpapi";
+  title: string | null;
+  url: string;
+}
+
+export interface PythonPipelineResultMessage {
+  anchorStrategy: "embedding" | "none" | "search";
+  cacheHit: boolean;
+  enginesUsed: string[];
+  error?: string;
+  face?: {
+    bbox: { height: number; width: number; x: number; y: number };
+    confidence: number;
+  };
+  inputFaceHash?: string;
+  results: PipelineCandidateResult[];
+  sessionId: string;
+  type: "pipeline.result";
+}
+
 export interface ServerSessionReadyMessage {
   sampling: {
     intervalMs: number;
@@ -304,5 +365,6 @@ export const stringifyMessage = (
   message:
     | PythonAdminMessage
     | PythonFrameProcessMessage
+    | PythonPipelineRunMessage
     | ServerToClientMessage
 ) => JSON.stringify(message);

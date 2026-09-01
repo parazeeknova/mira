@@ -12,17 +12,47 @@ import type {
   ClientSignalMessage,
   IdentityMetadataPayload,
   IdentitySyncStatus,
+  PipelineImage,
   PythonAdminIdentityFile,
   PythonAdminMessage,
   PythonAutoEnrollmentEvent,
   PythonFrameProcessMessage,
   PythonFrameResultMessage,
+  PythonPipelineResultMessage,
+  PythonPipelineRunMessage,
   PythonServiceReadyMessage,
   ServerEnrollmentSyncMessage,
   ServerToClientMessage,
 } from "./protocol";
 
 type Sender = (message: ServerToClientMessage) => void;
+
+export class PythonDisconnectedError extends Error {
+  constructor() {
+    super("Python service is not connected.");
+    this.name = "PythonDisconnectedError";
+  }
+}
+
+export class PipelineTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Pipeline did not complete within ${timeoutMs}ms.`);
+    this.name = "PipelineTimeoutError";
+  }
+}
+
+export class PipelineBusyError extends Error {
+  constructor(sessionId: string) {
+    super(`A pipeline run is already in progress for session ${sessionId}.`);
+    this.name = "PipelineBusyError";
+  }
+}
+
+interface PendingPipelineRequest {
+  reject: (error: Error) => void;
+  resolve: (result: PythonPipelineResultMessage) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
 
 interface SessionState {
   inFlightFrameId: number | null;
@@ -93,6 +123,10 @@ export class PythonBridge {
     { error?: string; status: IdentitySyncStatus }
   >();
   private readonly pendingAdminRequests: PendingAdminRequest[] = [];
+  private readonly pendingPipelineRequests = new Map<
+    string,
+    PendingPipelineRequest
+  >();
   private readonly pendingUnknownTracks = new Map<
     string,
     PendingUnknownTrack
@@ -178,6 +212,7 @@ export class PythonBridge {
         ok: false,
       });
     }
+    this.rejectAllPendingPipelineRequests(new PythonDisconnectedError());
     if (
       this.upstream &&
       (this.upstream.readyState === WebSocket.CONNECTING ||
@@ -221,6 +256,64 @@ export class PythonBridge {
     });
   }
 
+  /**
+   * Run the open-world identity pipeline for a single image.
+   *
+   * Sends a `pipeline.run` message over the shared upstream WebSocket and
+   * resolves with the matching `pipeline.result`. Concurrent runs for the
+   * same session are rejected with {@link PipelineBusyError}; runs for
+   * different sessions proceed independently.
+   */
+  runPipeline(
+    sessionId: string,
+    image: PipelineImage,
+    timeoutMs = 90_000
+  ): Promise<PythonPipelineResultMessage> {
+    if (this.pendingPipelineRequests.has(sessionId)) {
+      return Promise.reject(new PipelineBusyError(sessionId));
+    }
+
+    const { promise, resolve, reject } =
+      Promise.withResolvers<PythonPipelineResultMessage>();
+    const request: PendingPipelineRequest = {
+      resolve,
+      reject,
+      timeoutId: setTimeout(() => {
+        this.pendingPipelineRequests.delete(sessionId);
+        reject(new PipelineTimeoutError(timeoutMs));
+      }, timeoutMs),
+    };
+
+    this.pendingPipelineRequests.set(sessionId, request);
+
+    if (this.upstream?.readyState !== WebSocket.OPEN) {
+      // Ensure a connection attempt is started; the request is flushed when
+      // the connection opens (or rejected if the socket closes first).
+      this.ensureConnection();
+      this.pendingPipelineRequests.delete(sessionId);
+      clearTimeout(request.timeoutId);
+      reject(new PythonDisconnectedError());
+      return promise;
+    }
+
+    this.upstream.send(
+      stringifyMessage({
+        image,
+        sessionId,
+        type: "pipeline.run",
+      } satisfies PythonPipelineRunMessage)
+    );
+    return promise;
+  }
+
+  private rejectAllPendingPipelineRequests(error: Error): void {
+    for (const [sessionId, request] of this.pendingPipelineRequests) {
+      this.pendingPipelineRequests.delete(sessionId);
+      clearTimeout(request.timeoutId);
+      request.reject(error);
+    }
+  }
+
   private clearReconnectTimer(): void {
     if (this.reconnectTimer === null) {
       return;
@@ -255,6 +348,7 @@ export class PythonBridge {
       for (const request of this.pendingAdminRequests) {
         request.sent = false;
       }
+      this.rejectAllPendingPipelineRequests(new PythonDisconnectedError());
       this.setStatus({
         connected: false,
         detail: "Python service disconnected. Reconnecting...",
@@ -321,6 +415,7 @@ export class PythonBridge {
     const payload = JSON.parse(raw) as
       | PythonAdminResultMessage
       | PythonFrameResultMessage
+      | PythonPipelineResultMessage
       | PythonServiceReadyMessage;
 
     if (payload.type === "service.ready") {
@@ -345,6 +440,18 @@ export class PythonBridge {
         ok: payload.status === "ok",
       });
       this.flushAdminRequests();
+      return;
+    }
+
+    if (payload.type === "pipeline.result") {
+      const request = this.pendingPipelineRequests.get(payload.sessionId);
+      if (request === undefined) {
+        return;
+      }
+
+      this.pendingPipelineRequests.delete(payload.sessionId);
+      clearTimeout(request.timeoutId);
+      request.resolve(payload);
       return;
     }
 
