@@ -45,6 +45,13 @@ class PipelineResult:
     anchor_strategy: str
     engines_used: list[str]
     cache_hit: bool = False
+    input_face_hash: str = ""
+
+    @property
+    def input_face_hash_or_computed(self) -> str:
+        if self.input_face_hash:
+            return self.input_face_hash
+        return hashlib.sha256(self.face.embedding.tobytes()).hexdigest()
 
 
 def _embedding_fallback(embedding: np.ndarray) -> list[SearchResult]:
@@ -151,6 +158,9 @@ class Pipeline:
                         anchor_strategy="search",
                         engines_used=cached.engines_used,
                         cache_hit=True,
+                        input_face_hash=hashlib.sha256(
+                            face.embedding.tobytes()
+                        ).hexdigest(),
                     )
             except Exception as e:
                 logger.warning(
@@ -247,6 +257,7 @@ class Pipeline:
                 anchor_strategy="search",
                 engines_used=engines,
                 cache_hit=False,
+                input_face_hash=hashlib.sha256(face.embedding.tobytes()).hexdigest(),
             )
 
         # Zero-survivor fallback: embedding hash
@@ -258,6 +269,7 @@ class Pipeline:
             anchor_strategy="embedding",
             engines_used=["embedding-fallback"],
             cache_hit=False,
+            input_face_hash=hashlib.sha256(face.embedding.tobytes()).hexdigest(),
         )
 
     def _extract_face(self, image_bytes: bytes) -> FaceData:

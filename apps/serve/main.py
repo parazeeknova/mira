@@ -85,6 +85,7 @@ async def _handle_pipeline_run(payload: dict[str, object], pipeline: Pipeline) -
                 "anchorStrategy": result.anchor_strategy,
                 "enginesUsed": result.engines_used,
                 "cacheHit": bool(result.cache_hit),
+                "inputFaceHash": result.input_face_hash_or_computed,
             }
         )
     except NoFaceFoundError as exc:
