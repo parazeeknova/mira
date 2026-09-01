@@ -73,19 +73,81 @@ const parseMaxWidth = (): number => {
     : DEFAULT_MAX_WIDTH;
 };
 
+const RESIZE_TIMEOUT_MS = 5_000;
+
+/**
+ * Best-effort downscale before shipping the image to Python. Sharp can hang
+ * under some Bun/native-threadpool combinations — a timeout here degrades to
+ * forwarding the original bytes (Python's PIL + InsightFace handle arbitrary
+ * sizes; InsightFace resizes to 320px detector input internally anyway).
+ */
+const withTimeout = <T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  makeError: () => Error
+): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(makeError()), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  });
+};
+
 const resizeImage = async (
   bytes: ArrayBuffer
 ): Promise<{ data: string; height: number; width: number }> => {
   const maxWidth = parseMaxWidth();
-  const resized = await sharp(Buffer.from(bytes))
-    .resize({ width: maxWidth, withoutEnlargement: true })
-    .jpeg({ mozjpeg: true, quality: 88 })
-    .toBuffer();
-  const meta = await sharp(resized).metadata();
+  const input = Buffer.from(bytes);
+  // Single pipeline pass; resolveWithObject returns buffer + metadata together.
+  const { data, info } = await withTimeout(
+    sharp(input)
+      .resize({ width: maxWidth, withoutEnlargement: true })
+      .jpeg({ mozjpeg: true, quality: 88 })
+      .toBuffer({ resolveWithObject: true }),
+    RESIZE_TIMEOUT_MS,
+    () => new Error(`sharp resize timed out after ${RESIZE_TIMEOUT_MS}ms`)
+  );
   return {
-    data: resized.toString("base64"),
-    height: meta.height ?? 0,
-    width: meta.width ?? 0,
+    data: data.toString("base64"),
+    height: info.height,
+    width: info.width,
+  };
+};
+
+/** Fallback when sharp is unavailable/hung: forward original dimensions. */
+const rawImagePayload = (
+  bytes: ArrayBuffer
+): { data: string; height: number; width: number } => {
+  // JPEG SOF0/SOF2 scan for real dimensions (avoids decoding entirely).
+  const view = new DataView(bytes);
+  let offset = 2;
+  let height = 0;
+  let width = 0;
+  while (offset + 9 < view.byteLength) {
+    if (view.getUint8(offset) !== 0xff) {
+      break;
+    }
+    const marker = view.getUint8(offset + 1);
+    const length = view.getUint16(offset + 2);
+    if (
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      ![0xc4, 0xc8, 0xcc].includes(marker)
+    ) {
+      height = view.getUint16(offset + 5);
+      width = view.getUint16(offset + 7);
+      break;
+    }
+    offset += 2 + length;
+  }
+  return {
+    data: Buffer.from(bytes).toString("base64"),
+    height,
+    width,
   };
 };
 
@@ -165,22 +227,10 @@ export const handlePipelineRequest = async (
       ...(await resizeImage(imageBytes)),
     };
   } catch {
-    return json(
-      {
-        anchorStrategy: "none",
-        blockchain: null,
-        blockchainError: null,
-        cacheHit: false,
-        duplicate: false,
-        enginesUsed: [],
-        error: "Image could not be decoded. JPEG/PNG/WebP are supported.",
-        face: null,
-        inputFaceHash: null,
-        results: [],
-        verified: false,
-      },
-      400
-    );
+    // Graceful degradation: sharp failed or timed out — forward the original
+    // bytes with header-parsed dimensions. Python re-validates the image and
+    // returns a clean 422 if it is genuinely undecodable.
+    image = { mimeType: "image/jpeg", ...rawImagePayload(imageBytes) };
   }
 
   const sessionId = crypto.randomUUID();
