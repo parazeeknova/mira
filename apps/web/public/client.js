@@ -96,7 +96,9 @@ const state = {
       width: 0,
     },
     pipeline: {
+      autoScans: 0,
       busy: false,
+      manual: false,
       result: null,
     },
   },
@@ -635,6 +637,60 @@ const state = {
     }
 
     updateRenderTracks(message);
+    maybeAutoTrigger();
+  },
+  // ── Zero-click auto-trigger ──────────────────────────────────────
+  // A face track becomes a scan candidate once it has been observed
+  // steadily (min hits / ~1s). Each track scans at most once per
+  // cooldown window so a person standing in frame is not re-scanned.
+  AUTO_TRIGGER_MIN_HITS = 12,
+  AUTO_TRIGGER_MIN_AGE_MS = 900,
+  AUTO_TRIGGER_COOLDOWN_MS = 30_000,
+  scanCandidates = new Map(),
+  maybeAutoTrigger = () => {
+    if (state.pipeline.busy || document.hidden) {
+      return;
+    }
+
+    const now = Date.now();
+    for (const [key, track] of state.renderTracks.entries()) {
+      if (track.trackId === null || track.removeAfter !== null) {
+        scanCandidates.delete(key);
+        continue;
+      }
+
+      const candidate = scanCandidates.get(key) ?? {
+        firstSeenMs: now,
+        hits: 0,
+        lastTriggeredMs: 0,
+      };
+      candidate.hits += 1;
+      candidate.lastSeenMs = now;
+      scanCandidates.set(key, candidate);
+
+      const stableFor = now - candidate.firstSeenMs,
+        neverScanned = candidate.lastTriggeredMs === 0,
+        cooledDown =
+          !neverScanned &&
+          now - candidate.lastTriggeredMs >= AUTO_TRIGGER_COOLDOWN_MS;
+
+      if (
+        candidate.hits >= AUTO_TRIGGER_MIN_HITS &&
+        stableFor >= AUTO_TRIGGER_MIN_AGE_MS &&
+        (neverScanned || cooledDown)
+      ) {
+        candidate.lastTriggeredMs = now;
+        void runPipeline();
+        return; // one scan at a time
+      }
+    }
+
+    // Prune stale candidates (tracks that left the frame).
+    for (const [key, candidate] of scanCandidates.entries()) {
+      if (now - candidate.lastSeenMs > 4000) {
+        scanCandidates.delete(key);
+      }
+    }
   },
   setHudStatus = (text, stateKind = "idle") => {
     hudStatus.textContent = text;
@@ -650,7 +706,12 @@ const state = {
   setPipelineBusy = (busy) => {
     state.pipeline.busy = busy;
     pipelineButton.disabled = busy;
-    pipelineButtonLabel.textContent = busy ? "scanning…" : "scan identity";
+    pipelineButtonLabel.textContent = busy
+      ? "scanning…"
+      : state.pipeline.autoScans > 0
+        ? `rescan (${state.pipeline.autoScans})`
+        : "scan identity";
+    pipelineButton.dataset.busy = String(busy);
     pipelineButton.dataset.busy = String(busy);
     if (busy) {
       pipelineHud.hidden = false;
@@ -769,7 +830,7 @@ const state = {
       payload.error === null ? "done" : "error"
     );
   },
-  runPipeline = async () => {
+  runPipeline = async ({ manual = false } = {}) => {
     if (state.pipeline.busy) {
       return;
     }
@@ -780,13 +841,26 @@ const state = {
       return;
     }
 
+    if (manual) {
+      // Manual override: bypass per-track cooldown by resetting candidates.
+      for (const candidate of scanCandidates.values()) {
+        candidate.lastTriggeredMs = 0;
+      }
+    } else {
+      state.pipeline.autoScans += 1;
+    }
+
     setPipelineBusy(true);
     try {
-      // Capture a full-quality frame (not the 320px tracking sample).
-      captureCanvas.height = sourceHeight;
-      captureCanvas.width = sourceWidth;
-      captureContext.drawImage(cameraFeed, 0, 0, sourceWidth, sourceHeight);
-      const dataUrl = captureCanvas.toDataURL("image/jpeg", 0.9);
+      // Dedicated canvas: the tracking sampler reuses #capture-canvas at
+      // 320px on its 80ms timer and would corrupt a mid-flight capture.
+      const scanCanvas = document.createElement("canvas");
+      scanCanvas.height = sourceHeight;
+      scanCanvas.width = sourceWidth;
+      scanCanvas
+        .getContext("2d")
+        .drawImage(cameraFeed, 0, 0, sourceWidth, sourceHeight);
+      const dataUrl = scanCanvas.toDataURL("image/jpeg", 0.9);
       const blob = await (await fetch(dataUrl)).blob();
       const form = new FormData();
       form.set("image", blob, "frame.jpg");
@@ -1096,7 +1170,7 @@ cameraFlipButton.addEventListener("click", () => {
 });
 
 pipelineButton.addEventListener("click", () => {
-  void runPipeline();
+  void runPipeline({ manual: true });
 });
 
 hudClose.addEventListener("click", resetPipelineHud);
