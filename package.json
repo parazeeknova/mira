@@ -16,9 +16,15 @@
     "check-types": "turbo run check-types",
     "docker:build:serve": "docker build -f apps/serve/Dockerfile apps/serve -t mira-serve",
     "docker:build:web": "docker build -f apps/web/Dockerfile apps/web -t mira-web",
+    "chain:compile": "cd contracts && bunx --node hardhat compile",
+    "chain:test": "cd contracts && bunx --node hardhat test test/FaceRecord.test.ts",
+    "chain:node": "cd contracts && bunx --node hardhat node",
+    "chain:deploy": "bun scripts/deploy-contract.ts --network localhost",
+    "gen:wallet": "bun scripts/gen-wallet.ts",
     "prepare": "lefthook install"
   },
   "devDependencies": {
+    "ethers": "^6.15.0",
     "lefthook": "^2.1.4",
     "turbo": "^2.9.1",
     "typescript": "^6.0.2"
