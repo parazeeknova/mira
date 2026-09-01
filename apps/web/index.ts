@@ -1,5 +1,6 @@
 import type { Serve, ServerWebSocket } from "bun";
 
+import { BlockchainClient } from "./lib/blockchain";
 import {
   deleteEnrollmentIdentity,
   getEnrollmentIdentity,
@@ -9,6 +10,10 @@ import {
   updateEnrollmentIdentityMetadata,
   upsertEnrollmentIdentity,
 } from "./lib/enrollment-store";
+import {
+  handlePipelineRequest,
+  PipelineRequestError,
+} from "./lib/pipeline-service";
 import {
   DEFAULT_SAMPLING,
   parseClientMessage,
@@ -24,6 +29,7 @@ interface ClientData {
 const publicDir = new URL("public/", import.meta.url),
   pythonUrl = Bun.env["MIRA_SERVE_URL"] ?? "ws://127.0.0.1:8765",
   bridge = new PythonBridge(pythonUrl),
+  blockchainClient = new BlockchainClient(),
   asset = (pathname: string): Response =>
     new Response(Bun.file(new URL(pathname, publicDir))),
   send = (
@@ -300,6 +306,50 @@ const publicDir = new URL("public/", import.meta.url),
                 error instanceof Error
                   ? error.message
                   : "Enrollment request failed.",
+            },
+            500
+          );
+        }
+      }
+
+      if (url.pathname === "/api/pipeline" && req.method === "POST") {
+        try {
+          return await handlePipelineRequest(req, bridge, blockchainClient);
+        } catch (error) {
+          if (error instanceof PipelineRequestError) {
+            return json(
+              {
+                anchorStrategy: "none",
+                blockchain: null,
+                blockchainError: null,
+                cacheHit: false,
+                duplicate: false,
+                enginesUsed: [],
+                error: error.message,
+                face: null,
+                inputFaceHash: null,
+                results: [],
+                verified: false,
+              },
+              error.status
+            );
+          }
+          return json(
+            {
+              anchorStrategy: "none",
+              blockchain: null,
+              blockchainError: null,
+              cacheHit: false,
+              duplicate: false,
+              enginesUsed: [],
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Pipeline request failed.",
+              face: null,
+              inputFaceHash: null,
+              results: [],
+              verified: false,
             },
             500
           );
