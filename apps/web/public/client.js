@@ -11,6 +11,29 @@ const requiredNode = (selector) => {
   overlayCanvas = requiredNode("#overlay-canvas"),
   /** @type {HTMLCanvasElement} */
   captureCanvas = requiredNode("#capture-canvas"),
+  pipelineButton = requiredNode("#pipeline-button"),
+  pipelineButtonLabel = requiredNode("#pipeline-button-label"),
+  pipelineHud = requiredNode("#pipeline-hud"),
+  hudStatus = requiredNode("#hud-status"),
+  hudFace = requiredNode("#hud-face"),
+  hudFaceConfidence = requiredNode("#hud-face-confidence"),
+  hudCacheBadge = requiredNode("#hud-cache-badge"),
+  hudAnchorBadge = requiredNode("#hud-anchor-badge"),
+  hudChain = requiredNode("#hud-chain"),
+  hudVerifiedBadge = requiredNode("#hud-verified-badge"),
+  hudTxPreview = requiredNode("#hud-tx-preview"),
+  hudProofButton = requiredNode("#hud-proof-button"),
+  hudResults = requiredNode("#hud-results"),
+  hudClose = requiredNode("#hud-close"),
+  proofModal = requiredNode("#proof-modal"),
+  proofClose = requiredNode("#proof-close"),
+  proofStatus = requiredNode("#proof-status"),
+  proofContentHash = requiredNode("#proof-content-hash"),
+  proofFaceHash = requiredNode("#proof-face-hash"),
+  proofTxLink = requiredNode("#proof-tx-link"),
+  proofBlock = requiredNode("#proof-block"),
+  proofEngines = requiredNode("#proof-engines"),
+  proofUrl = requiredNode("#proof-url"),
   /** @type {HTMLDetailsElement} */
   menuShell = requiredNode("#menu-shell"),
   /** @type {HTMLElement} */
@@ -71,6 +94,10 @@ const state = {
     sourceSize: {
       height: 0,
       width: 0,
+    },
+    pipeline: {
+      busy: false,
+      result: null,
     },
   },
   renderEnrollmentList = () => {
@@ -609,6 +636,229 @@ const state = {
 
     updateRenderTracks(message);
   },
+  setHudStatus = (text, stateKind = "idle") => {
+    hudStatus.textContent = text;
+    hudStatus.dataset.kind = stateKind;
+  },
+  resetPipelineHud = () => {
+    state.pipeline.result = null;
+    pipelineHud.hidden = true;
+    hudResults.replaceChildren();
+    hudFace.hidden = true;
+    hudChain.hidden = true;
+  },
+  setPipelineBusy = (busy) => {
+    state.pipeline.busy = busy;
+    pipelineButton.disabled = busy;
+    pipelineButtonLabel.textContent = busy ? "scanning…" : "scan identity";
+    pipelineButton.dataset.busy = String(busy);
+    if (busy) {
+      pipelineHud.hidden = false;
+      hudFace.hidden = true;
+      hudChain.hidden = true;
+      hudResults.replaceChildren();
+      setHudStatus("identifying…", "busy");
+    }
+  },
+  formatEngineName = (engine) => {
+    switch (engine) {
+      case "google-vision": {
+        return "vision";
+      }
+      case "google_lens": {
+        return "lens";
+      }
+      case "yandex": {
+        return "yandex";
+      }
+      case "facecheck": {
+        return "facecheck";
+      }
+      default: {
+        return engine;
+      }
+    }
+  },
+  platformLabel = (platform) =>
+    platform === "none" ? null : platform.toUpperCase(),
+  renderResultCard = (result) => {
+    const card = document.createElement("article");
+    card.className = "result-card";
+    const platform = platformLabel(result.platform),
+      similarity =
+        typeof result.similarity === "number"
+          ? `~${result.similarity.toFixed(2)}`
+          : null,
+      engineBadges = [
+        result.engine,
+        ...(result.multiSourceCount > 1
+          ? [`+${result.multiSourceCount - 1} sources`]
+          : []),
+      ]
+        .map(
+          (engine) => `<span class="badge">${formatEngineName(engine)}</span>`
+        )
+        .join("");
+    card.innerHTML = `
+      <header class="result-card-header">
+        <span class="result-platform">${platform ?? "web"}</span>
+        ${similarity === null ? "" : `<span class="badge similarity">${similarity}</span>`}
+      </header>
+      ${result.title === null ? "" : `<p class="result-title">${result.title}</p>`}
+      ${result.snippet === null ? "" : `<p class="result-snippet">${result.snippet}</p>`}
+      <footer class="result-card-footer">
+        ${engineBadges}
+        <a href="${result.url}" target="_blank" rel="noopener">open ↗</a>
+      </footer>
+    `;
+    return card;
+  },
+  renderPipelineResult = (payload) => {
+    state.pipeline.result = payload;
+    pipelineHud.hidden = false;
+    hudFace.hidden = false;
+    hudResults.replaceChildren();
+
+    hudFaceConfidence.textContent =
+      payload.face === null
+        ? "—"
+        : `${(payload.face.confidence * 100).toFixed(0)}%`;
+    hudCacheBadge.textContent = payload.cacheHit
+      ? "⚡ instant"
+      : "🔍 live search";
+    hudAnchorBadge.textContent =
+      payload.anchorStrategy === "search" ? "post match" : "embedding";
+
+    if (payload.blockchain === null && payload.blockchainError === null) {
+      hudChain.hidden = true;
+    } else {
+      hudChain.hidden = false;
+      if (payload.verified) {
+        hudVerifiedBadge.textContent = payload.duplicate
+          ? "✅ verified (previously)"
+          : "✅ verified on-chain";
+        hudVerifiedBadge.dataset.kind = "verified";
+      } else {
+        hudVerifiedBadge.textContent = "⚠️ not verified";
+        hudVerifiedBadge.dataset.kind = "unverified";
+      }
+      hudTxPreview.textContent =
+        payload.blockchain === null || payload.blockchain.txHash === ""
+          ? (payload.blockchainError ?? "—")
+          : `tx ${payload.blockchain.txHash.slice(0, 10)}… block #${payload.blockchain.blockNumber || "—"}`;
+    }
+
+    for (const result of payload.results) {
+      hudResults.append(renderResultCard(result));
+    }
+
+    if (payload.results.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "option-note";
+      empty.textContent =
+        payload.error ?? "no public matches found for this face";
+      hudResults.append(empty);
+    }
+
+    setHudStatus(
+      payload.error === null
+        ? payload.cacheHit
+          ? "instant result"
+          : "live search complete"
+        : "scan failed",
+      payload.error === null ? "done" : "error"
+    );
+  },
+  runPipeline = async () => {
+    if (state.pipeline.busy) {
+      return;
+    }
+
+    const sourceHeight = cameraFeed.videoHeight,
+      sourceWidth = cameraFeed.videoWidth;
+    if (!sourceHeight || !sourceWidth) {
+      return;
+    }
+
+    setPipelineBusy(true);
+    try {
+      // Capture a full-quality frame (not the 320px tracking sample).
+      captureCanvas.height = sourceHeight;
+      captureCanvas.width = sourceWidth;
+      captureContext.drawImage(cameraFeed, 0, 0, sourceWidth, sourceHeight);
+      const dataUrl = captureCanvas.toDataURL("image/jpeg", 0.9);
+      const blob = await (await fetch(dataUrl)).blob();
+      const form = new FormData();
+      form.set("image", blob, "frame.jpg");
+
+      const response = await fetch("/api/pipeline", {
+        body: form,
+        method: "POST",
+      });
+      const payload = await response.json();
+      renderPipelineResult(
+        response.ok
+          ? payload
+          : {
+              ...payload,
+              error: payload.error ?? `scan failed (${response.status})`,
+            }
+      );
+    } catch (error) {
+      renderPipelineResult({
+        anchorStrategy: "none",
+        blockchain: null,
+        blockchainError: null,
+        cacheHit: false,
+        duplicate: false,
+        enginesUsed: [],
+        error: error instanceof Error ? error.message : "scan failed",
+        face: null,
+        inputFaceHash: null,
+        results: [],
+        verified: false,
+      });
+    } finally {
+      setPipelineBusy(false);
+    }
+  },
+  renderProofModal = () => {
+    const payload = state.pipeline.result;
+    if (payload === null) {
+      return;
+    }
+
+    proofModal.hidden = false;
+    if (payload.verified) {
+      proofStatus.textContent = payload.duplicate
+        ? "verified (previously anchored)"
+        : "verified on-chain";
+      proofStatus.dataset.kind = "verified";
+    } else {
+      proofStatus.textContent = payload.blockchainError ?? "not verified";
+      proofStatus.dataset.kind = "unverified";
+    }
+    proofContentHash.textContent = payload.blockchain?.contentHash ?? "—";
+    proofFaceHash.textContent = payload.inputFaceHash ?? "—";
+    const txHash = payload.blockchain?.txHash;
+    if (txHash !== undefined && txHash !== "") {
+      proofTxLink.textContent = `${txHash.slice(0, 22)}…`;
+      proofTxLink.href = payload.blockchain?.explorerUrl || "#";
+    } else {
+      proofTxLink.textContent = "—";
+      proofTxLink.removeAttribute("href");
+    }
+    proofBlock.textContent =
+      payload.blockchain?.blockNumber === undefined ||
+      payload.blockchain === null ||
+      payload.blockchain.blockNumber === 0
+        ? "—"
+        : `#${payload.blockchain.blockNumber}`;
+    proofEngines.textContent = payload.enginesUsed.join(", ") || "—";
+    const top = payload.results[0];
+    proofUrl.textContent = top?.url ?? "—";
+    proofUrl.href = top?.url ?? "#";
+  },
   handlePythonStatusMessage = (message) => {
     setConnectionState(message.connected ? "python-ready" : "python-wait");
     enrollmentValue.textContent = message.ready
@@ -843,6 +1093,29 @@ qualityInput.addEventListener("input", () => {
 
 cameraFlipButton.addEventListener("click", () => {
   void flipCamera();
+});
+
+pipelineButton.addEventListener("click", () => {
+  void runPipeline();
+});
+
+hudClose.addEventListener("click", resetPipelineHud);
+hudProofButton.addEventListener("click", renderProofModal);
+proofClose.addEventListener("click", () => {
+  proofModal.hidden = true;
+});
+proofModal.addEventListener("click", (event) => {
+  if (
+    event.target instanceof Element &&
+    event.target.hasAttribute("data-close")
+  ) {
+    proofModal.hidden = true;
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !proofModal.hidden) {
+    proofModal.hidden = true;
+  }
 });
 
 intervalValue.textContent = `${state.sampling.intervalMs} ms`;

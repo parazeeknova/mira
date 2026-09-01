@@ -1,21 +1,25 @@
 import { expect, test } from "@playwright/test";
 
+// Every WebSocket test needs a real page origin: on about:blank the browser
+// blocks ws:// connections outright, so evaluate() alone always fails.
+test.beforeEach(async ({ page }) => {
+  await page.goto("/");
+});
+
 test.describe("WebSocket connection", () => {
   test("connects to WebSocket endpoint", async ({ page }) => {
-    let wsConnected = false;
-
-    await page.evaluate(
+    const wsConnected = await page.evaluate(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise<boolean>((resolve) => {
           const ws = new WebSocket(`ws://${window.location.host}/ws/client`);
           ws.onopen = () => {
-            wsConnected = true;
             ws.close();
-            resolve();
+            resolve(true);
           };
           ws.onerror = () => {
-            resolve();
+            resolve(false);
           };
+          setTimeout(() => resolve(false), 5000);
         })
     );
 
@@ -23,11 +27,9 @@ test.describe("WebSocket connection", () => {
   });
 
   test("receives session.ready message after hello", async ({ page }) => {
-    const messages: unknown[] = [];
-
-    await page.evaluate(
+    const messages: unknown[] = await page.evaluate(
       () =>
-        new Promise<void>((resolve, reject) => {
+        new Promise<unknown[]>((resolve, reject) => {
           const ws = new WebSocket(`ws://${window.location.host}/ws/client`),
             received: unknown[] = [];
 
@@ -44,16 +46,13 @@ test.describe("WebSocket connection", () => {
             }
           };
 
-          ws.onclose = () => {
-            messages.push(...received);
-            resolve();
-          };
+          ws.onclose = () => resolve(received);
 
           ws.onerror = () => reject(new Error("WebSocket error"));
 
           setTimeout(() => {
             ws.close();
-            resolve();
+            resolve(received);
           }, 5000);
         })
     );
@@ -69,11 +68,9 @@ test.describe("WebSocket connection", () => {
   });
 
   test("receives python.status after hello", async ({ page }) => {
-    const messages: unknown[] = [];
-
-    await page.evaluate(
+    const messages: unknown[] = await page.evaluate(
       () =>
-        new Promise<void>((resolve, reject) => {
+        new Promise<unknown[]>((resolve, reject) => {
           const ws = new WebSocket(`ws://${window.location.host}/ws/client`),
             received: unknown[] = [];
 
@@ -86,16 +83,13 @@ test.describe("WebSocket connection", () => {
             received.push(msg);
           };
 
-          ws.onclose = () => {
-            messages.push(...received);
-            resolve();
-          };
+          ws.onclose = () => resolve(received);
 
           ws.onerror = () => reject(new Error("WebSocket error"));
 
           setTimeout(() => {
             ws.close();
-            resolve();
+            resolve(received);
           }, 5000);
         })
     );
@@ -152,11 +146,10 @@ test.describe("WebSocket connection", () => {
 
   test("handles client.hello with provided sessionId", async ({ page }) => {
     const providedSessionId = "custom-session-123";
-    let receivedSessionId: string | null = null;
 
-    await page.evaluate(
+    const receivedSessionId = await page.evaluate(
       (sessionId) =>
-        new Promise<void>((resolve, reject) => {
+        new Promise<string | null>((resolve, reject) => {
           const ws = new WebSocket(`ws://${window.location.host}/ws/client`);
 
           ws.onopen = () => {
@@ -171,17 +164,17 @@ test.describe("WebSocket connection", () => {
           ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
             if (msg.type === "session.ready") {
-              receivedSessionId = msg.sessionId;
               ws.close();
+              resolve(msg.sessionId);
             }
           };
 
-          ws.onclose = () => resolve();
+          ws.onclose = () => resolve(null);
           ws.onerror = () => reject(new Error("WebSocket error"));
 
           setTimeout(() => {
             ws.close();
-            resolve();
+            resolve(null);
           }, 5000);
         }),
       providedSessionId
@@ -191,12 +184,11 @@ test.describe("WebSocket connection", () => {
   });
 
   test("handles signal messages", async ({ page }) => {
-    const messages: unknown[] = [];
-
-    await page.evaluate(
+    const messages: unknown[] = await page.evaluate(
       () =>
-        new Promise<void>((resolve, reject) => {
+        new Promise<unknown[]>((resolve, reject) => {
           const ws = new WebSocket(`ws://${window.location.host}/ws/client`);
+          const received: unknown[] = [];
           let sessionId: string | null = null;
 
           ws.onopen = () => {
@@ -205,7 +197,7 @@ test.describe("WebSocket connection", () => {
 
           ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
-            messages.push(msg);
+            received.push(msg);
 
             if (msg.type === "session.ready") {
               ({ sessionId } = msg);
@@ -224,12 +216,12 @@ test.describe("WebSocket connection", () => {
             }
           };
 
-          ws.onclose = () => resolve();
+          ws.onclose = () => resolve(received);
           ws.onerror = () => reject(new Error("WebSocket error"));
 
           setTimeout(() => {
             ws.close();
-            resolve();
+            resolve(received);
           }, 5000);
         })
     );
@@ -242,12 +234,11 @@ test.describe("WebSocket connection", () => {
   });
 
   test("handles frame.submit messages", async ({ page }) => {
-    const messages: unknown[] = [];
-
-    await page.evaluate(
+    const messages: unknown[] = await page.evaluate(
       () =>
-        new Promise<void>((resolve, reject) => {
+        new Promise<unknown[]>((resolve, reject) => {
           const ws = new WebSocket(`ws://${window.location.host}/ws/client`);
+          const received: unknown[] = [];
           let sessionId: string | null = null;
 
           ws.onopen = () => {
@@ -256,7 +247,7 @@ test.describe("WebSocket connection", () => {
 
           ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
-            messages.push(msg);
+            received.push(msg);
 
             if (msg.type === "session.ready") {
               ({ sessionId } = msg);
@@ -278,12 +269,12 @@ test.describe("WebSocket connection", () => {
             }
           };
 
-          ws.onclose = () => resolve();
+          ws.onclose = () => resolve(received);
           ws.onerror = () => reject(new Error("WebSocket error"));
 
           setTimeout(() => {
             ws.close();
-            resolve();
+            resolve(received);
           }, 5000);
         })
     );
