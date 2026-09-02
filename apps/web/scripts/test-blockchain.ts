@@ -1,23 +1,23 @@
-// Integration smoke test: store → verify → verifyResult against a live local node.
-// Prereqs: `bun run chain:node` in one terminal, then `bun run chain:deploy`.
-// Run: bun scripts/test-blockchain.ts
-import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import path from "node:path";
 
 import {
   BlockchainClient,
   buildHashableResult,
-} from "../apps/web/lib/blockchain";
+} from "../src/blockchain/blockchain";
 
-const envPath = resolve(import.meta.dir, "../apps/web/.env");
+const envPath = path.resolve(import.meta.dir, "../../.env");
 if (!existsSync(envPath)) {
-  console.error("apps/web/.env not found. Run chain:deploy first.");
+  console.error("root .env not found. Run chain:deploy first.");
   process.exit(1);
 }
-for (const line of readFileSync(envPath, "utf8").split("\n")) {
-  const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
-  if (m && !(m[1] in process.env)) {
-    process.env[m[1]] = m[2].trim();
+const envText = await Bun.file(envPath).text();
+for (const line of envText.split("\n")) {
+  const m = line.match(/^(?<key>[A-Z_][A-Z0-9_]*)=(?<value>.*)$/u);
+  const key = m?.groups?.["key"];
+  const value = m?.groups?.["value"];
+  if (key !== undefined && value !== undefined && !(key in process.env)) {
+    process.env[key] = value.trim();
   }
 }
 
@@ -73,8 +73,12 @@ try {
   await client.store(mock);
   console.error("FAIL: duplicate store was accepted.");
   process.exit(1);
-} catch (e) {
-  console.log(`   rejected as expected: ${(e as Error).message.slice(0, 60)}...`);
+} catch (error) {
+  console.log(
+    `   rejected as expected: ${(error as Error).message.slice(0, 60)}...`
+  );
 }
 
-console.log("\nAll smoke tests passed: stored=true, verified=true, tamper-detected=true, duplicate-rejected=true");
+console.log(
+  "\nAll smoke tests passed: stored=true, verified=true, tamper-detected=true, duplicate-rejected=true"
+);

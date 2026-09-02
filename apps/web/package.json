@@ -4,12 +4,13 @@
   "type": "module",
   "module": "src/server/index.ts",
   "scripts": {
-    "build": "mkdir -p dist && bun build --target=bun --production --minify --sourcemap --external sharp --outdir dist ./src/server/index.ts && cp -R src/client/. dist/client/ 2>/dev/null; cp -R public/. dist/client/ 2>/dev/null; true",
-    "dev": "bun --watch src/server/index.ts",
+    "build": "mkdir -p dist && bun build --target=bun --production --minify --sourcemap --external sharp --outdir dist ./src/server/index.ts && cp -R src/client/. dist/client/ 2>/dev/null || true",
+    "dev": "bun --env-file=../../.env.development --env-file=../../.env --watch src/server/index.ts",
+    "start": "NODE_ENV=production bun --env-file=../../.env.development --env-file=../../.env dist/index.js",
     "check": "oxlint --fix . && oxfmt --write .",
     "check-types": "tsc -p tsconfig.json --noEmit",
-    "start": "NODE_ENV=production bun dist/index.js",
     "test": "bun test",
+    "test:blockchain": "bun scripts/test-blockchain.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:all": "bun test && playwright test"

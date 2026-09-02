@@ -6,6 +6,15 @@
   ...
 }:
 
+let
+  bun_1_4_0 = pkgs.bun.overrideAttrs (old: {
+    version = "1.4.0";
+    src = pkgs.fetchurl {
+      url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-linux-x64.zip";
+      sha256 = "1b0cn8487w9y63dgcx9vjhij2yw2z448kl3xjdrzh9zjzsyv931y";
+    };
+  });
+in
 {
   name = "mira";
   cachix.enable = true;
@@ -52,9 +61,7 @@
     package = pkgs.nodejs_24;
     bun = {
       enable = true;
-      package = pkgs.bun;
-      # Do not auto-run `bun install` on every `devenv shell` — heavy.
-      # Run `bun install` or `devenv tasks run mira:install` manually.
+      package = bun_1_4_0;
       install.enable = false;
     };
     corepack.enable = false;
@@ -75,7 +82,6 @@
       enable = true;
       package = pkgs.uv;
       sync = {
-        # Auto-sync is heavy (downloads CUDA wheels). Run manually via `uv sync --project apps/serve`.
         enable = false;
         allGroups = true;
       };

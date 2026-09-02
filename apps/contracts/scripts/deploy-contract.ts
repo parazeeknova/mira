@@ -1,10 +1,6 @@
-// Deploys FaceRecord to a local network (hardhat in-process or localhost node).
-// Usage:
-//   bun scripts/deploy-contract.ts --network hardhat   (in-process, ephemeral)
-//   bun scripts/deploy-contract.ts --network localhost (needs `bun run chain:node`)
-// Never targets a public network; no real funds involved.
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import path from "node:path";
+
 import { JsonRpcProvider, ContractFactory, Wallet } from "ethers";
 
 interface Artifact {
@@ -12,28 +8,59 @@ interface Artifact {
   bytecode: string;
 }
 
+const withTimeout = async <T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  makeError: () => Error
+): Promise<T> => {
+  const { promise: timer, resolve: clearTimer } =
+    Promise.withResolvers<undefined>();
+  const timerId = setTimeout(() => clearTimer(), timeoutMs);
+  try {
+    const result = await Promise.race([
+      promise,
+      timer.then(() => {
+        throw makeError();
+      }),
+    ]);
+    return result;
+  } finally {
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+    }
+  }
+};
+
 const network = (() => {
   const i = process.argv.indexOf("--network");
-  return i !== -1 ? (process.argv[i + 1] ?? "localhost") : "localhost";
+  if (i !== -1) {
+    return process.argv[i + 1] ?? "localhost";
+  }
+  return "localhost";
 })();
 
 const RPC: Record<string, string> = {
-  localhost: "http://127.0.0.1:8545",
   hardhat: "http://127.0.0.1:8545",
+  localhost: "http://127.0.0.1:8545",
 };
 
 const rpcUrl = RPC[network];
-if (!rpcUrl) {
+if (rpcUrl === undefined) {
   console.error(`Unsupported network "${network}". Use: localhost | hardhat`);
   process.exit(1);
 }
 
-const artifactPath = resolve(import.meta.dir, "../apps/contracts/artifacts/contracts/FaceRecord.sol/FaceRecord.json");
+const artifactPath = path.resolve(
+  import.meta.dir,
+  "../artifacts/contracts/FaceRecord.sol/FaceRecord.json"
+);
 if (!existsSync(artifactPath)) {
-  console.error("Artifact not found. Run: cd apps/contracts && bunx --node hardhat compile");
+  console.error(
+    "Artifact not found. Run: bunx hardhat compile (in apps/contracts)"
+  );
   process.exit(1);
 }
-const artifact = JSON.parse(readFileSync(artifactPath, "utf8")) as Artifact;
+const artifact = JSON.parse(await Bun.file(artifactPath).text()) as Artifact;
 
 // Local nodes expose prefunded unlocked accounts; a PK is optional.
 const pk = process.env.WALLET_PRIVATE_KEY;
@@ -51,12 +78,11 @@ if (!tx) {
   process.exit(1);
 }
 
-const receipt = await Promise.race([
+const receipt = await withTimeout(
   tx.wait(1),
-  new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error(`Deployment timed out after ${deployTimeoutMs}ms`)), deployTimeoutMs)
-  ),
-]);
+  deployTimeoutMs,
+  () => new Error(`Deployment timed out after ${deployTimeoutMs}ms`)
+);
 
 if (!receipt || receipt.status !== 1) {
   console.error("Deployment transaction failed on-chain.");
@@ -67,12 +93,12 @@ const address = await contract.getAddress();
 console.log(`FaceRecord deployed at: ${address}`);
 console.log(`tx: ${tx.hash}  block: ${receipt.blockNumber}`);
 
-// Idempotently patch apps/web/.env with the contract address.
-const envPath = resolve(import.meta.dir, "../apps/web/.env");
+// Idempotently patch the gitignored root .env with the contract address.
+const envPath = path.resolve(import.meta.dir, "../../../.env");
 const line = `FACE_RECORD_CONTRACT_ADDR=${address}`;
-let env = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+let env = existsSync(envPath) ? await Bun.file(envPath).text() : "";
 env = env.includes("FACE_RECORD_CONTRACT_ADDR=")
-  ? env.replace(/^FACE_RECORD_CONTRACT_ADDR=.*$/m, line)
+  ? env.replace(/^FACE_RECORD_CONTRACT_ADDR=.*$/mu, line)
   : `${env}${env && !env.endsWith("\n") ? "\n" : ""}${line}\n`;
-writeFileSync(envPath, env);
-console.log(`Patched apps/web/.env → ${line}`);
+await Bun.write(envPath, env);
+console.log(`Patched .env → ${line}`);

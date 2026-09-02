@@ -52,12 +52,16 @@ class Settings:
 
 
 def _dotenv_candidates() -> list[Path]:
+    # First-file-wins loader (only sets keys not already in os.environ),
+    # so order matters: the gitignored private root `.env` (override) must
+    # come before `.env.development` (defaults).
     # src/config/config.py → parents[3] = apps/serve, parents[4] = repo root
     here = Path(__file__).resolve()
     return [
-        Path.cwd() / ".env",
+        here.parents[4] / ".env",  # private overrides
+        here.parents[4] / ".env.development",  # shared defaults
         here.parents[3] / ".env",
-        here.parents[4] / ".env",
+        Path.cwd() / ".env",
         Path.cwd().parent / ".env",
     ]
 

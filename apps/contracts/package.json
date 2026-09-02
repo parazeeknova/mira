@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "compile": "hardhat compile",
-    "test": "hardhat test test/face-record.test.ts",
-    "node": "hardhat node",
-    "deploy:local": "node --experimental-strip-types ../../scripts/deploy-contract.ts --network localhost",
-    "clean": "hardhat clean",
+    "compile": "bunx hardhat compile",
+    "test": "bunx hardhat test test/face-record.test.ts",
+    "node": "bunx hardhat node",
+    "deploy:local": "bun scripts/deploy-contract.ts --network localhost",
+    "gen:wallet": "bun scripts/gen-wallet.ts",
+    "clean": "bunx hardhat clean",
     "check": "oxlint --fix . && oxfmt --write .",
     "check-types": "tsc -p tsconfig.json --noEmit"
   },
@@ -20,9 +21,8 @@
     "chai": "^4.5.0",
     "ethers": "^6.15.0",
     "hardhat": "^2.26.0",
-    "oxfmt": "^0.66.0",
-    "oxlint": "^1.81.0",
-    "ts-node": "^10.9.2",
+    "oxfmt": "^0.43.0",
+    "oxlint": "^1.58.0",
     "typescript": "^7.0.2"
   }
 }
