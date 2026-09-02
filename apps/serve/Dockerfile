@@ -27,9 +27,8 @@ ARG INSIGHTFACE_MODEL_PACK=buffalo_l
 ENV INSIGHTFACE_MODEL_PACK=${INSIGHTFACE_MODEL_PACK}
 
 COPY .python-version ./
-COPY package.json pyproject.toml uv.lock main.py ./
-COPY mira_serve ./mira_serve
-COPY stubs ./stubs
+COPY package.json pyproject.toml uv.lock ./
+COPY src ./src
 
 RUN python - <<'PY'
 import os
@@ -55,4 +54,6 @@ RUN uv sync --frozen --no-dev
 
 EXPOSE 8765
 
-CMD ["/app/.venv/bin/python", "main.py"]
+ENV PYTHONPATH=/app/src
+
+CMD ["/app/.venv/bin/python", "src/server/main.py"]
