@@ -78,7 +78,6 @@ const overlayCanvas = requiredNode<HTMLCanvasElement>("#overlay-canvas");
 const captureCanvas = requiredNode<HTMLCanvasElement>("#capture-canvas");
 const pipelineButton = requiredNode<HTMLButtonElement>("#pipeline-button");
 const pipelineButtonLabel = requiredNode<HTMLElement>("#pipeline-button-label");
-const pipelineHud = requiredNode<HTMLElement>("#pipeline-hud");
 const hudStatus = requiredNode<HTMLElement>("#hud-status");
 const hudFace = requiredNode<HTMLElement>("#hud-face");
 const hudFaceConfidence = requiredNode<HTMLElement>("#hud-face-confidence");
@@ -89,8 +88,7 @@ const hudVerifiedBadge = requiredNode<HTMLElement>("#hud-verified-badge");
 const hudTxPreview = requiredNode<HTMLElement>("#hud-tx-preview");
 const hudProofButton = requiredNode<HTMLElement>("#hud-proof-button");
 const hudResults = requiredNode<HTMLElement>("#hud-results");
-const hudClose = requiredNode<HTMLElement>("#hud-close");
-const proofModal = requiredNode<HTMLElement>("#proof-modal");
+const proofCard = requiredNode<HTMLElement>("#proof-card");
 const proofClose = requiredNode<HTMLElement>("#proof-close");
 const proofStatus = requiredNode<HTMLElement>("#proof-status");
 const proofContentHash = requiredNode<HTMLElement>("#proof-content-hash");
@@ -523,7 +521,7 @@ const renderResultCard = (
       ${snippetHtml}
       <footer class="result-card-footer">
         ${engineBadges}
-        <a href="${result.url}" target="_blank" rel="noopener">open ↗</a>
+        <a href="${result.url}" target="_blank" rel="noopener">open</a>
       </footer>
     `;
   return card;
@@ -538,11 +536,11 @@ const renderChainStatus = (payload: PipelineResultPayload): void => {
   hudChain.hidden = false;
   if (payload.verified) {
     hudVerifiedBadge.textContent = payload.duplicate
-      ? "✅ verified (previously)"
-      : "✅ verified on-chain";
+      ? "verified (prev)"
+      : "verified on-chain";
     hudVerifiedBadge.dataset["kind"] = "verified";
   } else {
-    hudVerifiedBadge.textContent = "⚠️ not verified";
+    hudVerifiedBadge.textContent = "not verified";
     hudVerifiedBadge.dataset["kind"] = "unverified";
   }
 
@@ -564,14 +562,6 @@ const setHudStatus = (text: string, kind = "idle"): void => {
   hudStatus.dataset["kind"] = kind;
 };
 
-const resetPipelineHud = (): void => {
-  state.pipeline.result = null;
-  pipelineHud.hidden = true;
-  hudResults.replaceChildren();
-  hudFace.hidden = true;
-  hudChain.hidden = true;
-};
-
 const autoScanLabel = (): string => {
   if (state.pipeline.autoScans === 0) {
     return "scan identity";
@@ -585,7 +575,6 @@ const setPipelineBusy = (busy: boolean): void => {
   pipelineButtonLabel.textContent = busy ? "scanning…" : autoScanLabel();
   pipelineButton.dataset["busy"] = String(busy);
   if (busy) {
-    pipelineHud.hidden = false;
     hudFace.hidden = true;
     hudChain.hidden = true;
     hudResults.replaceChildren();
@@ -595,7 +584,6 @@ const setPipelineBusy = (busy: boolean): void => {
 
 const renderPipelineResult = (payload: PipelineResultPayload): void => {
   state.pipeline.result = payload;
-  pipelineHud.hidden = false;
   hudFace.hidden = false;
   hudResults.replaceChildren();
 
@@ -603,9 +591,7 @@ const renderPipelineResult = (payload: PipelineResultPayload): void => {
     payload.face === null
       ? "—"
       : `${(payload.face.confidence * 100).toFixed(0)}%`;
-  hudCacheBadge.textContent = payload.cacheHit
-    ? "⚡ instant"
-    : "🔍 live search";
+  hudCacheBadge.textContent = payload.cacheHit ? "instant" : "live search";
   hudAnchorBadge.textContent =
     payload.anchorStrategy === "search" ? "post match" : "embedding";
 
@@ -1013,7 +999,7 @@ const flipCamera = async (): Promise<void> => {
 const renderProofStatus = (payload: PipelineResultPayload): void => {
   if (payload.verified) {
     proofStatus.textContent = payload.duplicate
-      ? "verified (previously anchored)"
+      ? "verified (prev)"
       : "verified on-chain";
     proofStatus.dataset["kind"] = "verified";
     return;
@@ -1039,7 +1025,7 @@ const renderProofModal = (): void => {
     return;
   }
 
-  proofModal.hidden = false;
+  proofCard.hidden = false;
   renderProofStatus(payload);
   proofContentHash.textContent = payload.blockchain?.contentHash ?? "—";
   proofFaceHash.textContent = payload.inputFaceHash ?? "—";
@@ -1105,22 +1091,13 @@ pipelineButton.addEventListener("click", () => {
   void runPipeline({ manual: true });
 });
 
-hudClose.addEventListener("click", resetPipelineHud);
 hudProofButton.addEventListener("click", renderProofModal);
 proofClose.addEventListener("click", () => {
-  proofModal.hidden = true;
-});
-proofModal.addEventListener("click", (event) => {
-  if (
-    event.target instanceof HTMLElement &&
-    Object.hasOwn(event.target.dataset, "close")
-  ) {
-    proofModal.hidden = true;
-  }
+  proofCard.hidden = true;
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !proofModal.hidden) {
-    proofModal.hidden = true;
+  if (event.key === "Escape" && !proofCard.hidden) {
+    proofCard.hidden = true;
   }
 });
 

@@ -13,259 +13,166 @@
       <canvas id="overlay-canvas"></canvas>
       <canvas id="capture-canvas" hidden></canvas>
 
-      <button id="pipeline-button" class="pipeline-button" type="button">
-        <span class="pipeline-button-icon">◈</span>
-        <span id="pipeline-button-label">scan identity</span>
+      <button id="pipeline-button" type="button">
+        <span id="pipeline-button-label">scan</span>
       </button>
 
-      <aside id="pipeline-hud" class="pipeline-hud" hidden>
-        <header class="pipeline-hud-header">
-          <span id="hud-status" class="hud-status">idle</span>
-          <button
-            id="hud-close"
-            class="hud-close"
-            type="button"
-            aria-label="Dismiss results"
-          >
-            ✕
-          </button>
-        </header>
-
-        <section id="hud-face" class="hud-face" hidden>
-          <div class="hud-face-chip">
-            <span class="hud-face-label">face</span>
-            <strong id="hud-face-confidence">0%</strong>
-          </div>
-          <div class="hud-face-chip">
-            <span class="hud-face-label">cache</span>
-            <strong id="hud-cache-badge">—</strong>
-          </div>
-          <div class="hud-face-chip">
-            <span class="hud-face-label">anchor</span>
-            <strong id="hud-anchor-badge">—</strong>
-          </div>
-        </section>
-
-        <section id="hud-chain" class="hud-chain" hidden>
-          <span class="hud-chain-icon">⛓️</span>
-          <div class="hud-chain-text">
-            <strong id="hud-verified-badge">checking…</strong>
-            <span id="hud-tx-preview">—</span>
-          </div>
-          <button id="hud-proof-button" class="tiny-button" type="button">
-            proof
-          </button>
-        </section>
-
-        <section id="hud-results" class="hud-results"></section>
-      </aside>
-
-      <div id="proof-modal" class="proof-modal" hidden>
-        <div class="proof-modal-backdrop" data-close></div>
-        <div class="proof-modal-card" role="dialog" aria-modal="true">
-          <header class="proof-modal-header">
-            <strong>on-chain proof</strong>
-            <button
-              id="proof-close"
-              class="hud-close"
-              type="button"
-              aria-label="Close proof"
-            >
-              ✕
-            </button>
-          </header>
-          <dl class="proof-grid">
-            <dt>status</dt>
-            <dd id="proof-status">—</dd>
-            <dt>content hash</dt>
-            <dd>
-              <code id="proof-content-hash">—</code>
-            </dd>
-            <dt>face hash</dt>
-            <dd>
-              <code id="proof-face-hash">—</code>
-            </dd>
-            <dt>tx</dt>
-            <dd>
-              <a id="proof-tx-link" target="_blank" rel="noopener">—</a>
-            </dd>
-            <dt>block</dt>
-            <dd id="proof-block">—</dd>
-            <dt>engines</dt>
-            <dd id="proof-engines">—</dd>
-            <dt>top match</dt>
-            <dd>
-              <a id="proof-url" target="_blank" rel="noopener">—</a>
-            </dd>
-          </dl>
-        </div>
-      </div>
-
       <details id="menu-shell" class="menu-shell">
-        <summary
-          id="menu-toggle"
-          class="menu-button"
-          aria-label="Open controls"
-        >
-          <img
-            class="menu-logo"
-            src="/mira.svg"
-            alt="Mira"
-            width="20"
-            height="20"
-          />
-        </summary>
+        <summary id="menu-toggle" aria-label="open controls">mira</summary>
 
-        <section id="options-panel" class="options-panel">
-          <div class="option-row">
-            <span class="option-label">Connection</span>
-            <strong id="connection-value">offline</strong>
-          </div>
+        <section id="options-panel">
+          <header class="card" id="hud-chain">
+            <span id="hud-status">idle</span>
+            <span id="hud-verified-badge">—</span>
+            <span id="hud-tx-preview">—</span>
+            <button id="hud-proof-button" type="button">proof</button>
+          </header>
 
-          <div class="option-row">
-            <span class="option-label">Frames</span>
-            <strong id="frame-counter">0 frames</strong>
-          </div>
+          <section class="card" id="hud-face" hidden>
+            <span id="hud-face-confidence">0%</span>
+            <span id="hud-cache-badge">—</span>
+            <span id="hud-anchor-badge">—</span>
+          </section>
 
-          <div class="option-row">
-            <span class="option-label">Latency</span>
-            <strong id="latency-chip">0 ms</strong>
-          </div>
+          <section class="card" id="hud-results"></section>
 
-          <div class="option-row">
-            <span class="option-label">Camera</span>
-            <button
-              id="camera-flip-button"
-              class="tiny-button ghost-button"
-              type="button"
-            >
-              flip
-            </button>
-          </div>
+          <section class="card" id="proof-card" hidden>
+            <header>
+              <span>proof</span>
+              <button id="proof-close" type="button">x</button>
+            </header>
+            <dl>
+              <dt>status</dt>
+              <dd id="proof-status">—</dd>
+              <dt>content hash</dt>
+              <dd><code id="proof-content-hash">—</code></dd>
+              <dt>face hash</dt>
+              <dd><code id="proof-face-hash">—</code></dd>
+              <dt>tx</dt>
+              <dd>
+                <a id="proof-tx-link" target="_blank" rel="noopener">—</a>
+              </dd>
+              <dt>block</dt>
+              <dd id="proof-block">—</dd>
+              <dt>engines</dt>
+              <dd id="proof-engines">—</dd>
+              <dt>top match</dt>
+              <dd><a id="proof-url" target="_blank" rel="noopener">—</a></dd>
+            </dl>
+          </section>
 
-          <label class="option-group slider-group">
-            <span class="option-label">Sampling interval</span>
-            <input
-              id="interval-input"
-              type="range"
-              min="40"
-              max="500"
-              value="80"
-              step="10"
-            />
-            <strong id="interval-value">80 ms</strong>
-          </label>
+          <section class="card" id="stats">
+            <dl>
+              <dt>conn</dt>
+              <dd id="connection-value">offline</dd>
+              <dt>frames</dt>
+              <dd id="frame-counter">0</dd>
+              <dt>latency</dt>
+              <dd id="latency-chip">0</dd>
+              <dt>providers</dt>
+              <dd id="providers-value">pending</dd>
+              <dt>tracking</dt>
+              <dd id="tracking-value">pending</dd>
+              <dt>enrollment</dt>
+              <dd id="enrollment-value">pending</dd>
+              <dt>index</dt>
+              <dd id="index-value">pending</dd>
+            </dl>
+          </section>
 
-          <label class="option-group slider-group">
-            <span class="option-label">JPEG quality</span>
-            <input
-              id="quality-input"
-              type="range"
-              min="40"
-              max="95"
-              value="50"
-              step="1"
-            />
-            <strong id="quality-value">0.50</strong>
-          </label>
+          <section class="card" id="controls">
+            <dl>
+              <dt>interval</dt>
+              <dd>
+                <input
+                  id="interval-input"
+                  type="range"
+                  min="40"
+                  max="500"
+                  value="80"
+                  step="10"
+                />
+                <span id="interval-value">80</span>
+              </dd>
+              <dt>quality</dt>
+              <dd>
+                <input
+                  id="quality-input"
+                  type="range"
+                  min="40"
+                  max="95"
+                  value="50"
+                  step="1"
+                />
+                <span id="quality-value">0.50</span>
+              </dd>
+              <dt>camera</dt>
+              <dd>
+                <button id="camera-flip-button" type="button">flip</button>
+              </dd>
+            </dl>
+          </section>
 
-          <div class="option-row">
-            <span class="option-label">Providers</span>
-            <strong id="providers-value">pending</strong>
-          </div>
-
-          <div class="option-row">
-            <span class="option-label">Tracking</span>
-            <strong id="tracking-value">pending</strong>
-          </div>
-
-          <div class="option-row">
-            <span class="option-label">Enrollment</span>
-            <strong id="enrollment-value">pending</strong>
-          </div>
-
-          <div class="option-row">
-            <span class="option-label">Index version</span>
-            <strong id="index-value">pending</strong>
-          </div>
-
-          <form id="enrollment-form" class="option-group form-group">
-            <span class="option-label">Enroll identity</span>
-            <input
-              id="identity-name-input"
-              class="tiny-input"
-              type="text"
-              name="name"
-              placeholder="name"
-              required
-            />
-            <input
-              id="identity-works-at-input"
-              class="tiny-input"
-              type="text"
-              name="worksAt"
-              placeholder="works at"
-            />
-            <input
-              id="identity-color-input"
-              class="tiny-input"
-              type="text"
-              name="color"
-              placeholder="#4ee3ff"
-              value="#4ee3ff"
-              required
-            />
-            <input
-              id="identity-linkedin-input"
-              class="tiny-input"
-              type="text"
-              name="linkedinId"
-              placeholder="linkedin id"
-            />
-            <input
-              id="identity-github-input"
-              class="tiny-input"
-              type="text"
-              name="githubUsername"
-              placeholder="github username"
-            />
-            <input
-              id="identity-email-input"
-              class="tiny-input"
-              type="email"
-              name="email"
-              placeholder="email"
-            />
-            <input
-              id="identity-phone-input"
-              class="tiny-input"
-              type="tel"
-              name="phoneNumber"
-              placeholder="phone number"
-            />
-            <input
-              id="identity-files-input"
-              class="tiny-input"
-              type="file"
-              name="files"
-              accept=".jpg,.jpeg,.png,.webp"
-              multiple
-            />
-            <button id="enroll-submit-button" class="tiny-button" type="submit">
-              Upload
-            </button>
-            <small id="enrollment-status" class="option-note">idle</small>
-          </form>
-
-          <div class="option-group">
-            <span class="option-label">Stored identities</span>
-            <div id="enrollment-list" class="identity-list"></div>
-          </div>
-
-          <div class="option-group">
-            <span class="option-label">Enrollment diagnostics</span>
-            <div id="enrollment-diagnostics" class="identity-list"></div>
-          </div>
+          <section class="card" id="enroll">
+            <form id="enrollment-form">
+              <input
+                id="identity-name-input"
+                type="text"
+                name="name"
+                placeholder="name"
+                required
+              />
+              <input
+                id="identity-works-at-input"
+                type="text"
+                name="worksAt"
+                placeholder="works at"
+              />
+              <input
+                id="identity-color-input"
+                type="text"
+                name="color"
+                placeholder="#4ee3ff"
+                value="#4ee3ff"
+                required
+              />
+              <input
+                id="identity-linkedin-input"
+                type="text"
+                name="linkedinId"
+                placeholder="linkedin"
+              />
+              <input
+                id="identity-github-input"
+                type="text"
+                name="githubUsername"
+                placeholder="github"
+              />
+              <input
+                id="identity-email-input"
+                type="email"
+                name="email"
+                placeholder="email"
+              />
+              <input
+                id="identity-phone-input"
+                type="tel"
+                name="phoneNumber"
+                placeholder="phone"
+              />
+              <input
+                id="identity-files-input"
+                type="file"
+                name="files"
+                accept=".jpg,.jpeg,.png,.webp"
+                multiple
+              />
+              <button id="enroll-submit-button" type="submit">upload</button>
+              <span id="enrollment-status">idle</span>
+            </form>
+            <div id="enrollment-list"></div>
+            <div id="enrollment-diagnostics"></div>
+          </section>
         </section>
       </details>
     </main>
