@@ -1,3 +1,4 @@
+// oxlint-disable consistent-function-scoping
 import { describe, expect, test } from "bun:test";
 
 describe("optionalString", () => {
@@ -67,8 +68,8 @@ describe("slugify", () => {
     const slug = value
       .trim()
       .toLowerCase()
-      .replaceAll(/[^a-z0-9]+/g, "-")
-      .replaceAll(/^-+|-+$/g, "");
+      .replaceAll(/[^a-z0-9]+/gu, "-")
+      .replaceAll(/^-+|-+$/gu, "");
     return slug || "identity";
   };
 
@@ -112,16 +113,16 @@ describe("buildIdentityId", () => {
     name: string
   ): string => {
     const slugify = (value: string): string => {
-        const slug = value
-          .trim()
-          .toLowerCase()
-          .replaceAll(/[^a-z0-9]+/g, "-")
-          .replaceAll(/^-+|-+$/g, "");
-        return slug || "identity";
-      },
-      base = slugify(name);
-    let candidate = base,
-      suffix = 2;
+      const slug = value
+        .trim()
+        .toLowerCase()
+        .replaceAll(/[^a-z0-9]+/gu, "-")
+        .replaceAll(/^-+|-+$/gu, "");
+      return slug || "identity";
+    };
+    const base = slugify(name);
+    let candidate = base;
+    let suffix = 2;
 
     while (identities.some((identity) => identity.id === candidate)) {
       candidate = `${base}-${suffix}`;
@@ -257,8 +258,8 @@ describe("json helper", () => {
   });
 
   test("handles array body", async () => {
-    const response = json([1, 2, 3]),
-      body = await response.json();
+    const response = json([1, 2, 3]);
+    const body = await response.json();
     expect(body).toEqual([1, 2, 3]);
   });
 });
@@ -316,7 +317,7 @@ describe("session management", () => {
     expect(sessionId.length).toBe(36);
     expect(
       sessionId.match(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
       )
     ).not.toBeNull();
   });

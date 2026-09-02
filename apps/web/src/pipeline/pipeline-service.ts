@@ -1,16 +1,17 @@
+// oxlint-disable complexity, avoid-new, param-names
 import sharp from "sharp";
 
-import { buildHashableResult, contentHashOf } from "./blockchain";
-import type { BlockchainClient, ChainRecord } from "./blockchain";
-import type {
-  PipelineCandidateResult,
-  PythonPipelineResultMessage,
-} from "./protocol";
+import { buildHashableResult, contentHashOf } from "../blockchain/blockchain";
+import type { BlockchainClient, ChainRecord } from "../blockchain/blockchain";
 import {
   PipelineBusyError,
   PipelineTimeoutError,
   PythonDisconnectedError,
-} from "./python-bridge";
+} from "../bridge/python-bridge";
+import type {
+  PipelineCandidateResult,
+  PythonPipelineResultMessage,
+} from "../protocol/protocol";
 
 export interface PipelineResponse {
   anchorStrategy: "embedding" | "none" | "search";
@@ -31,17 +32,17 @@ const DEFAULT_MAX_WIDTH = 1280;
 const PIPELINE_TIMEOUT_MS = 90_000;
 
 export class PipelineRequestError extends Error {
-  constructor(
-    message: string,
-    readonly status: number
-  ) {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
     super(message);
     this.name = "PipelineRequestError";
+    this.status = status;
   }
 }
 
 interface BridgeLike {
-  runPipeline(
+  runPipeline: (
     sessionId: string,
     image: {
       data: string;
@@ -50,9 +51,9 @@ interface BridgeLike {
       width: number;
     },
     timeoutMs?: number
-  ): Promise<PythonPipelineResultMessage>;
-  sendAdminMessage?(payload: {
-    files: Array<{ data: string; name: string }>;
+  ) => Promise<PythonPipelineResultMessage>;
+  sendAdminMessage?: (payload: {
+    files: { data: string; name: string }[];
     id: string;
     metadata: {
       color: string;
@@ -65,17 +66,19 @@ interface BridgeLike {
       worksAt?: string;
     };
     type: "admin.upsert-identity";
-  }): Promise<{ changed: boolean; ok: boolean }>;
+  }) => Promise<{ changed: boolean; ok: boolean }>;
 }
 
 interface BlockchainLike {
-  isConfigured(): boolean;
-  store(result: Parameters<BlockchainClient["store"]>[0]): Promise<ChainRecord>;
-  verify(contentHash: string): Promise<{ exists: boolean }>;
-  verifyResult(
+  isConfigured: () => boolean;
+  store: (
+    result: Parameters<BlockchainClient["store"]>[0]
+  ) => Promise<ChainRecord>;
+  verify: (contentHash: string) => Promise<{ exists: boolean }>;
+  verifyResult: (
     result: Parameters<BlockchainClient["verifyResult"]>[0],
     expectedHash: string
-  ): Promise<{ exists: boolean; hashMatch: boolean; verified: boolean }>;
+  ) => Promise<{ exists: boolean; hashMatch: boolean; verified: boolean }>;
 }
 
 const json = (body: PipelineResponse, status = 200): Response =>
@@ -94,10 +97,10 @@ export const parseIdentityFromFinding = (
 
   if (top.title) {
     const cleaned = top.title
-      .replace(/\|.*$/i, "")
-      .replace(/-.*$/i, "")
-      .replace(/\bon linkedin.*$/i, "")
-      .replace(/\bprofile\b/i, "")
+      .replace(/\|.*$/iu, "")
+      .replace(/-.*$/iu, "")
+      .replace(/\bon linkedin.*$/iu, "")
+      .replace(/\bprofile\b/iu, "")
       .trim();
     if (
       cleaned.length > 1 &&
@@ -108,23 +111,25 @@ export const parseIdentityFromFinding = (
   }
 
   if (top.url.includes("linkedin.com/in/")) {
-    const match = top.url.match(/linkedin\.com\/in\/([a-zA-Z0-9_-]+)/);
-    if (match && match[1]) {
-      linkedinId = match[1];
+    const match = top.url.match(/linkedin\.com\/in\/(?<id>[a-zA-Z0-9_-]+)/u);
+    if (match?.groups?.["id"] !== undefined) {
+      linkedinId = match.groups["id"];
       if (!name) {
-        name = match[1]
-          .replace(/[-_]/g, " ")
-          .replace(/\b\w/g, (c) => c.toUpperCase());
+        name = (match.groups?.["id"] ?? "")
+          .replaceAll(/[-_]/gu, " ")
+          .replaceAll(/\b\w/gu, (c) => c.toUpperCase());
       }
     }
   } else if (top.url.includes("linkedin.com/posts/")) {
-    const match = top.url.match(/linkedin\.com\/posts\/([a-zA-Z0-9_-]+?)_/);
-    if (match && match[1]) {
-      linkedinId = match[1];
+    const match = top.url.match(
+      /linkedin\.com\/posts\/(?<id>[a-zA-Z0-9_-]+?)_/u
+    );
+    if (match?.groups?.["id"] !== undefined) {
+      linkedinId = match.groups["id"];
       if (!name) {
-        name = match[1]
-          .replace(/[-_]/g, " ")
-          .replace(/\b\w/g, (c) => c.toUpperCase());
+        name = (match.groups?.["id"] ?? "")
+          .replaceAll(/[-_]/gu, " ")
+          .replaceAll(/\b\w/gu, (c) => c.toUpperCase());
       }
     }
   }
@@ -136,8 +141,8 @@ export const parseIdentityFromFinding = (
   const id =
     name
       .toLowerCase()
-      .replaceAll(/[^a-z0-9]+/g, "-")
-      .replaceAll(/^-+|-+$/g, "") || "identity";
+      .replaceAll(/[^a-z0-9]+/gu, "-")
+      .replaceAll(/^-+|-+$/gu, "") || "identity";
 
   return {
     color: "#3b82f6",
@@ -154,7 +159,7 @@ const parseMaxWidth = (): number => {
     : DEFAULT_MAX_WIDTH;
 };
 
-const RESIZE_TIMEOUT_MS = 5_000;
+const RESIZE_TIMEOUT_MS = 5000;
 
 /**
  * Best-effort downscale before shipping the image to Python. Sharp can hang
@@ -234,7 +239,7 @@ const rawImagePayload = (
 
 const isAlreadyStoredError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
-  return /already exists|AlreadyStored/i.test(message);
+  return /already exists|AlreadyStored/iu.test(message);
 };
 
 export const handlePipelineRequest = async (

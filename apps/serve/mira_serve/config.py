@@ -9,8 +9,6 @@ from pathlib import Path
 class Settings:
     host: str
     port: int
-    enrollment_sync_base_url: str | None
-    enrollment_sync_enabled: bool
     model_pack: str
     model_root: str
     detector_width: int
@@ -88,11 +86,6 @@ def load_settings() -> Settings:
     return Settings(
         host="0.0.0.0",
         port=8765,
-        enrollment_sync_base_url="https://r2-mira.singularityworks.xyz",
-        enrollment_sync_enabled=os.getenv(
-            "MIRA_ENROLLMENT_SYNC_ENABLED", "false"
-        ).lower()
-        == "true",
         model_pack="buffalo_l",
         model_root=".insightface",
         detector_width=320,

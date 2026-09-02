@@ -1,11 +1,12 @@
+// oxlint-disable require-await
 import { describe, expect, test } from "bun:test";
 
+import { PythonDisconnectedError } from "../bridge/python-bridge";
+import type { PythonPipelineResultMessage } from "../protocol/protocol";
 import {
   handlePipelineRequest,
   PipelineRequestError,
 } from "./pipeline-service";
-import type { PythonPipelineResultMessage } from "./protocol";
-import { PythonDisconnectedError } from "./python-bridge";
 
 const buildForm = (bytes: Uint8Array): FormData => {
   const form = new FormData();

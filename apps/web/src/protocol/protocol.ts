@@ -266,41 +266,41 @@ export const DEFAULT_SAMPLING = {
 } as const;
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
-    typeof value === "object" && value !== null,
-  isSignalType = (value: unknown): value is SignalType =>
-    value === "answer" || value === "ice" || value === "offer",
-  parseFrameImage = (value: unknown): ClientFrameSubmitMessage["image"] => {
-    if (!isObject(value)) {
-      throw new TypeError("Invalid frame image payload.");
-    }
+  typeof value === "object" && value !== null;
+const isSignalType = (value: unknown): value is SignalType =>
+  value === "answer" || value === "ice" || value === "offer";
+const parseFrameImage = (value: unknown): ClientFrameSubmitMessage["image"] => {
+  if (!isObject(value)) {
+    throw new TypeError("Invalid frame image payload.");
+  }
 
-    const { data } = value,
-      { height } = value,
-      { mimeType } = value,
-      { width } = value;
+  const { data } = value;
+  const { height } = value;
+  const { mimeType } = value;
+  const { width } = value;
 
-    if (
-      typeof data !== "string" ||
-      typeof height !== "number" ||
-      mimeType !== "image/jpeg" ||
-      typeof width !== "number"
-    ) {
-      throw new TypeError("Invalid frame image payload.");
-    }
+  if (
+    typeof data !== "string" ||
+    typeof height !== "number" ||
+    mimeType !== "image/jpeg" ||
+    typeof width !== "number"
+  ) {
+    throw new TypeError("Invalid frame image payload.");
+  }
 
-    return {
-      data,
-      height,
-      mimeType,
-      width,
-    };
+  return {
+    data,
+    height,
+    mimeType,
+    width,
   };
+};
 
 export const parseClientMessage = (
   raw: string | Buffer
 ): ClientToServerMessage => {
-  const text = typeof raw === "string" ? raw : raw.toString("utf8"),
-    payload = JSON.parse(text) as unknown;
+  const text = typeof raw === "string" ? raw : raw.toString("utf-8");
+  const payload = JSON.parse(text) as unknown;
   if (!isObject(payload) || typeof payload["type"] !== "string") {
     throw new TypeError("Invalid message payload.");
   }
@@ -317,8 +317,8 @@ export const parseClientMessage = (
           };
     }
     case "signal": {
-      const { sessionId } = payload,
-        { signalType } = payload;
+      const { sessionId } = payload;
+      const { signalType } = payload;
       if (typeof sessionId !== "string" || !isSignalType(signalType)) {
         throw new TypeError("Invalid signal payload.");
       }
@@ -331,11 +331,11 @@ export const parseClientMessage = (
       };
     }
     case "frame.submit": {
-      const { capturedAt } = payload,
-        { frameId } = payload,
-        image = parseFrameImage(payload["image"]),
-        { sampleIntervalMs } = payload,
-        { sessionId } = payload;
+      const { capturedAt } = payload;
+      const { frameId } = payload;
+      const image = parseFrameImage(payload["image"]);
+      const { sampleIntervalMs } = payload;
+      const { sessionId } = payload;
 
       if (
         typeof capturedAt !== "number" ||

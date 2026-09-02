@@ -14,17 +14,17 @@ import type {
 describe("parseClientMessage", () => {
   describe("client.hello", () => {
     test("parses client.hello without sessionId", () => {
-      const raw = JSON.stringify({ type: "client.hello" }),
-        result = parseClientMessage(raw);
+      const raw = JSON.stringify({ type: "client.hello" });
+      const result = parseClientMessage(raw);
       expect(result).toEqual({ type: "client.hello" });
     });
 
     test("parses client.hello with sessionId", () => {
       const raw = JSON.stringify({
-          sessionId: "test-session-123",
-          type: "client.hello",
-        }),
-        result = parseClientMessage(raw);
+        sessionId: "test-session-123",
+        type: "client.hello",
+      });
+      const result = parseClientMessage(raw);
       expect(result).toEqual({
         sessionId: "test-session-123",
         type: "client.hello",
@@ -32,8 +32,8 @@ describe("parseClientMessage", () => {
     });
 
     test("parses client.hello from Buffer", () => {
-      const raw = Buffer.from(JSON.stringify({ type: "client.hello" })),
-        result = parseClientMessage(raw);
+      const raw = Buffer.from(JSON.stringify({ type: "client.hello" }));
+      const result = parseClientMessage(raw);
       expect(result).toEqual({ type: "client.hello" });
     });
   });
@@ -41,12 +41,12 @@ describe("parseClientMessage", () => {
   describe("signal", () => {
     test("parses signal with answer type", () => {
       const raw = JSON.stringify({
-          payload: { sdp: "test-sdp" },
-          sessionId: "session-1",
-          signalType: "answer",
-          type: "signal",
-        }),
-        result = parseClientMessage(raw);
+        payload: { sdp: "test-sdp" },
+        sessionId: "session-1",
+        signalType: "answer",
+        type: "signal",
+      });
+      const result = parseClientMessage(raw);
       expect(result).toEqual({
         payload: { sdp: "test-sdp" },
         sessionId: "session-1",
@@ -57,12 +57,12 @@ describe("parseClientMessage", () => {
 
     test("parses signal with offer type", () => {
       const raw = JSON.stringify({
-          payload: { sdp: "offer-sdp" },
-          sessionId: "session-2",
-          signalType: "offer",
-          type: "signal",
-        }),
-        result = parseClientMessage(raw);
+        payload: { sdp: "offer-sdp" },
+        sessionId: "session-2",
+        signalType: "offer",
+        type: "signal",
+      });
+      const result = parseClientMessage(raw);
       expect(result).toEqual({
         payload: { sdp: "offer-sdp" },
         sessionId: "session-2",
@@ -73,12 +73,12 @@ describe("parseClientMessage", () => {
 
     test("parses signal with ice type", () => {
       const raw = JSON.stringify({
-          payload: { candidate: "ice-candidate" },
-          sessionId: "session-3",
-          signalType: "ice",
-          type: "signal",
-        }),
-        result = parseClientMessage(raw);
+        payload: { candidate: "ice-candidate" },
+        sessionId: "session-3",
+        signalType: "ice",
+        type: "signal",
+      });
+      const result = parseClientMessage(raw);
       expect(result).toEqual({
         payload: { candidate: "ice-candidate" },
         sessionId: "session-3",
@@ -110,19 +110,19 @@ describe("parseClientMessage", () => {
   describe("frame.submit", () => {
     test("parses valid frame.submit message", () => {
       const raw = JSON.stringify({
-          capturedAt: 1_234_567_890,
-          frameId: 1,
-          image: {
-            data: "base64imagedata",
-            height: 720,
-            mimeType: "image/jpeg",
-            width: 1280,
-          },
-          sampleIntervalMs: 80,
-          sessionId: "session-1",
-          type: "frame.submit",
-        }),
-        result = parseClientMessage(raw);
+        capturedAt: 1_234_567_890,
+        frameId: 1,
+        image: {
+          data: "base64imagedata",
+          height: 720,
+          mimeType: "image/jpeg",
+          width: 1280,
+        },
+        sampleIntervalMs: 80,
+        sessionId: "session-1",
+        type: "frame.submit",
+      });
+      const result = parseClientMessage(raw);
       expect(result).toEqual({
         capturedAt: 1_234_567_890,
         frameId: 1,
@@ -243,116 +243,116 @@ describe("parseClientMessage", () => {
 describe("stringifyMessage", () => {
   test("stringifies PythonAdminMessage", () => {
     const message: PythonAdminMessage = {
-        id: "identity-1",
-        type: "admin.delete-identity",
-      },
-      result = stringifyMessage(message);
+      id: "identity-1",
+      type: "admin.delete-identity",
+    };
+    const result = stringifyMessage(message);
     expect(JSON.parse(result)).toEqual(message);
   });
 
   test("stringifies PythonFrameProcessMessage", () => {
     const message: PythonFrameProcessMessage = {
-        capturedAt: 1_234_567_890,
-        frameId: 1,
-        image: {
-          data: "base64data",
-          height: 720,
-          mimeType: "image/jpeg",
-          width: 1280,
-        },
-        sampleIntervalMs: 80,
-        sessionId: "session-1",
-        type: "frame.process",
+      capturedAt: 1_234_567_890,
+      frameId: 1,
+      image: {
+        data: "base64data",
+        height: 720,
+        mimeType: "image/jpeg",
+        width: 1280,
       },
-      result = stringifyMessage(message);
+      sampleIntervalMs: 80,
+      sessionId: "session-1",
+      type: "frame.process",
+    };
+    const result = stringifyMessage(message);
     expect(JSON.parse(result)).toEqual(message);
   });
 
   test("stringifies ServerToClientMessage", () => {
     const message: ServerToClientMessage = {
-        sampling: {
-          intervalMs: 80,
-          jpegQuality: 0.5,
-          maxWidth: 320,
-        },
-        sessionId: "session-1",
-        type: "session.ready",
+      sampling: {
+        intervalMs: 80,
+        jpegQuality: 0.5,
+        maxWidth: 320,
       },
-      result = stringifyMessage(message);
+      sessionId: "session-1",
+      type: "session.ready",
+    };
+    const result = stringifyMessage(message);
     expect(JSON.parse(result)).toEqual(message);
   });
 
   test("stringifies PythonAdminUpsertIdentityMessage", () => {
     const message: PythonAdminMessage = {
-        files: [
-          {
-            data: "base64filedata",
-            name: "ref-1.jpg",
-          },
-        ],
-        id: "identity-1",
-        metadata: {
-          color: "#ffffff",
-          name: "Test User",
+      files: [
+        {
+          data: "base64filedata",
+          name: "ref-1.jpg",
         },
-        type: "admin.upsert-identity",
+      ],
+      id: "identity-1",
+      metadata: {
+        color: "#ffffff",
+        name: "Test User",
       },
-      result = stringifyMessage(message);
+      type: "admin.upsert-identity",
+    };
+    const result = stringifyMessage(message);
     expect(JSON.parse(result)).toEqual(message);
   });
 
   test("stringifies ServerErrorMessage", () => {
     const message: ServerToClientMessage = {
-        message: "Test error message",
-        type: "error",
-      },
-      result = stringifyMessage(message);
+      message: "Test error message",
+      type: "error",
+    };
+    const result = stringifyMessage(message);
     expect(JSON.parse(result)).toEqual(message);
   });
 
   test("stringifies ServerEnrollmentSyncMessage", () => {
     const message: ServerToClientMessage = {
-        identityId: "identity-1",
-        status: "syncing",
-        type: "enrollment.sync",
-      },
-      result = stringifyMessage(message);
+      identityId: "identity-1",
+      status: "syncing",
+      type: "enrollment.sync",
+    };
+    const result = stringifyMessage(message);
     expect(JSON.parse(result)).toEqual(message);
   });
 
   test("stringifies ServerEnrollmentSyncMessage with error", () => {
     const message: ServerToClientMessage = {
-        error: "Sync failed",
-        identityId: "identity-1",
-        status: "error",
-        type: "enrollment.sync",
-      },
-      result = stringifyMessage(message);
+      error: "Sync failed",
+      identityId: "identity-1",
+      status: "error",
+      type: "enrollment.sync",
+    };
+    const result = stringifyMessage(message);
     expect(JSON.parse(result)).toEqual(message);
   });
 
   test("stringifies PythonFrameResultMessage", () => {
     const message: ServerToClientMessage = {
-        capturedAt: 1_234_567_890,
-        faces: [
-          {
-            bbox: { height: 50, width: 50, x: 100, y: 100 },
-            confidence: 0.95,
-            identity: null,
-            isUnknown: true,
-            trackId: 1,
-          },
-        ],
-        frameId: 1,
-        indexVersion: 1,
-        latencyMs: 50,
-        providers: ["test-provider"],
-        sampleIntervalMs: 80,
-        sessionId: "session-1",
-        sourceSize: { height: 720, width: 1280 },
-        type: "frame.result",
-      },
-      result = stringifyMessage(message);
+      capturedAt: 1_234_567_890,
+      faces: [
+        {
+          bbox: { height: 50, width: 50, x: 100, y: 100 },
+          confidence: 0.95,
+          identity: null,
+          isUnknown: true,
+          trackId: 1,
+        },
+      ],
+      frameId: 1,
+      indexVersion: 1,
+      latencyMs: 50,
+      providers: ["test-provider"],
+      sampleIntervalMs: 80,
+      sessionId: "session-1",
+      sourceSize: { height: 720, width: 1280 },
+      type: "frame.result",
+    };
+    const result = stringifyMessage(message);
     expect(JSON.parse(result)).toEqual(message);
   });
 });
@@ -416,21 +416,21 @@ describe("edge cases", () => {
 
   test("handles deeply nested payload in signal", () => {
     const deepPayload = {
-        level1: {
-          level2: {
-            level3: {
-              value: "deep",
-            },
+      level1: {
+        level2: {
+          level3: {
+            value: "deep",
           },
         },
       },
-      raw = JSON.stringify({
-        payload: deepPayload,
-        sessionId: "session-1",
-        signalType: "answer",
-        type: "signal",
-      }),
-      result = parseClientMessage(raw);
+    };
+    const raw = JSON.stringify({
+      payload: deepPayload,
+      sessionId: "session-1",
+      signalType: "answer",
+      type: "signal",
+    });
+    const result = parseClientMessage(raw);
     if (result.type === "signal") {
       expect(result.payload).toEqual(deepPayload);
     }
@@ -438,10 +438,10 @@ describe("edge cases", () => {
 
   test("handles special characters in sessionId", () => {
     const raw = JSON.stringify({
-        sessionId: "session-with-special-chars-!@#$%^&*()",
-        type: "client.hello",
-      }),
-      result = parseClientMessage(raw);
+      sessionId: "session-with-special-chars-!@#$%^&*()",
+      type: "client.hello",
+    });
+    const result = parseClientMessage(raw);
     expect(result).toEqual({
       sessionId: "session-with-special-chars-!@#$%^&*()",
       type: "client.hello",
@@ -450,49 +450,49 @@ describe("edge cases", () => {
 
   test("handles unicode in identity metadata when stringifying", () => {
     const message: ServerToClientMessage = {
-        capturedAt: 1_234_567_890,
-        faces: [
-          {
-            bbox: { height: 100, width: 100, x: 0, y: 0 },
-            confidence: 0.9,
-            identity: {
-              color: "#ffffff",
-              id: "user-1",
-              name: "用户名",
-            },
-            isUnknown: false,
-            trackId: 1,
+      capturedAt: 1_234_567_890,
+      faces: [
+        {
+          bbox: { height: 100, width: 100, x: 0, y: 0 },
+          confidence: 0.9,
+          identity: {
+            color: "#ffffff",
+            id: "user-1",
+            name: "用户名",
           },
-        ],
-        frameId: 1,
-        indexVersion: 1,
-        latencyMs: 50,
-        providers: [],
-        sampleIntervalMs: 80,
-        sessionId: "session-1",
-        sourceSize: { height: 720, width: 1280 },
-        type: "frame.result",
-      },
-      result = stringifyMessage(message),
-      parsed = JSON.parse(result);
+          isUnknown: false,
+          trackId: 1,
+        },
+      ],
+      frameId: 1,
+      indexVersion: 1,
+      latencyMs: 50,
+      providers: [],
+      sampleIntervalMs: 80,
+      sessionId: "session-1",
+      sourceSize: { height: 720, width: 1280 },
+      type: "frame.result",
+    };
+    const result = stringifyMessage(message);
+    const parsed = JSON.parse(result);
     expect(parsed.faces[0].identity.name).toBe("用户名");
   });
 
   test("handles very large frameId", () => {
     const raw = JSON.stringify({
-        capturedAt: 1_234_567_890,
-        frameId: Number.MAX_SAFE_INTEGER,
-        image: {
-          data: "base64",
-          height: 1,
-          mimeType: "image/jpeg",
-          width: 1,
-        },
-        sampleIntervalMs: 80,
-        sessionId: "session-1",
-        type: "frame.submit",
-      }),
-      result = parseClientMessage(raw);
+      capturedAt: 1_234_567_890,
+      frameId: Number.MAX_SAFE_INTEGER,
+      image: {
+        data: "base64",
+        height: 1,
+        mimeType: "image/jpeg",
+        width: 1,
+      },
+      sampleIntervalMs: 80,
+      sessionId: "session-1",
+      type: "frame.submit",
+    });
+    const result = parseClientMessage(raw);
     if (result.type === "frame.submit") {
       expect(result.frameId).toBe(Number.MAX_SAFE_INTEGER);
     }
@@ -500,19 +500,19 @@ describe("edge cases", () => {
 
   test("handles negative frameId", () => {
     const raw = JSON.stringify({
-        capturedAt: 1_234_567_890,
-        frameId: -1,
-        image: {
-          data: "base64",
-          height: 1,
-          mimeType: "image/jpeg",
-          width: 1,
-        },
-        sampleIntervalMs: 80,
-        sessionId: "session-1",
-        type: "frame.submit",
-      }),
-      result = parseClientMessage(raw);
+      capturedAt: 1_234_567_890,
+      frameId: -1,
+      image: {
+        data: "base64",
+        height: 1,
+        mimeType: "image/jpeg",
+        width: 1,
+      },
+      sampleIntervalMs: 80,
+      sessionId: "session-1",
+      type: "frame.submit",
+    });
+    const result = parseClientMessage(raw);
     if (result.type === "frame.submit") {
       expect(result.frameId).toBe(-1);
     }
@@ -520,19 +520,19 @@ describe("edge cases", () => {
 
   test("handles zero dimensions in image", () => {
     const raw = JSON.stringify({
-        capturedAt: 1_234_567_890,
-        frameId: 1,
-        image: {
-          data: "base64",
-          height: 0,
-          mimeType: "image/jpeg",
-          width: 0,
-        },
-        sampleIntervalMs: 80,
-        sessionId: "session-1",
-        type: "frame.submit",
-      }),
-      result = parseClientMessage(raw);
+      capturedAt: 1_234_567_890,
+      frameId: 1,
+      image: {
+        data: "base64",
+        height: 0,
+        mimeType: "image/jpeg",
+        width: 0,
+      },
+      sampleIntervalMs: 80,
+      sessionId: "session-1",
+      type: "frame.submit",
+    });
+    const result = parseClientMessage(raw);
     if (result.type === "frame.submit") {
       expect(result.image.height).toBe(0);
       expect(result.image.width).toBe(0);

@@ -13,7 +13,7 @@
     "check-types": "tsc -p apps/web/tsconfig.json --noEmit && tsc -p apps/contracts/tsconfig.json --noEmit && uv run --with pyright pyright --project apps/serve",
     "test": "bun test --parallel --concurrent --max-concurrency 20 --bail --randomize --coverage --coverage-reporter=text apps/web && (uv run --project apps/serve pytest apps/serve/tests -q --tb=short || uv run --with pytest --with pytest-asyncio pytest apps/serve/tests -q --tb=short || echo \"⚠ serve tests skipped — run inside devenv shell\") && (cd apps/contracts && bunx hardhat test)",
     "chain:compile": "cd apps/contracts && bunx --node hardhat compile",
-    "chain:test": "cd apps/contracts && bunx --node hardhat test test/FaceRecord.test.ts",
+    "chain:test": "cd apps/contracts && bunx --node hardhat test test/face-record.test.ts",
     "chain:node": "cd apps/contracts && bunx --node hardhat node",
     "chain:deploy": "bun scripts/deploy-contract.ts --network localhost",
     "prepare": "lefthook install"

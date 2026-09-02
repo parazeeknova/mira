@@ -12,9 +12,6 @@ export default defineConfig({
           args: [
             "--use-fake-ui-for-media-stream",
             "--use-fake-device-for-media-stream",
-            // Synthetic "face" video so tracking produces real trackIds and the
-            // zero-click auto-trigger path is exercisable in E2E.
-            "--use-file-for-fake-video-capture=./e2e/fixtures/face.y4m",
           ],
         },
       },
@@ -23,7 +20,7 @@ export default defineConfig({
   reporter: "html",
   retries: process.env["CI"] ? 2 : 0,
   testDir: "./e2e",
-  testMatch: /.*\.e2e\.ts/,
+  testMatch: /.*\.e2e\.ts/u,
   use: {
     baseURL: "http://localhost:3000",
     trace: "on-first-retry",

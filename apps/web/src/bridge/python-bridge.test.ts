@@ -1,3 +1,4 @@
+// oxlint-disable consistent-function-scoping, avoid-new, no-promise-executor-return
 import { describe, expect, test, mock } from "bun:test";
 
 describe("normalizePythonWebSocketUrl", () => {
@@ -107,8 +108,8 @@ describe("createAutoIdentity", () => {
   const createAutoIdentity = (
     counter: number
   ): { id: string; name: string; color: string } => {
-    const suffix = `${Date.now().toString(36)}-${counter.toString(36)}`,
-      id = `person-${suffix}`;
+    const suffix = `${Date.now().toString(36)}-${counter.toString(36)}`;
+    const id = `person-${suffix}`;
     return {
       color: "#ffffff",
       id,
@@ -123,8 +124,8 @@ describe("createAutoIdentity", () => {
   });
 
   test("creates unique IDs for different counters", () => {
-    const identity1 = createAutoIdentity(1),
-      identity2 = createAutoIdentity(2);
+    const identity1 = createAutoIdentity(1);
+    const identity2 = createAutoIdentity(2);
     expect(identity1.id).not.toBe(identity2.id);
   });
 
@@ -136,12 +137,12 @@ describe("createAutoIdentity", () => {
 
 describe("SessionState", () => {
   test("initial state structure", () => {
-    const send = mock(() => {}),
-      sessionState = {
-        inFlightFrameId: null as number | null,
-        queuedFrame: null as unknown,
-        send,
-      };
+    const send = mock(() => {});
+    const sessionState = {
+      inFlightFrameId: null as number | null,
+      queuedFrame: null as unknown,
+      send,
+    };
 
     expect(sessionState.inFlightFrameId).toBeNull();
     expect(sessionState.queuedFrame).toBeNull();
@@ -211,16 +212,16 @@ describe("PythonStatus", () => {
 
 describe("PendingAdminRequest", () => {
   test("structure matches expected shape", () => {
-    const resolve = mock(() => {}),
-      request = {
-        payload: {
-          id: "identity-1",
-          type: "admin.delete-identity" as const,
-        },
-        resolve,
-        sent: false,
-        timeoutId: setTimeout(() => {}, 1000),
-      };
+    const resolve = mock(() => {});
+    const request = {
+      payload: {
+        id: "identity-1",
+        type: "admin.delete-identity" as const,
+      },
+      resolve,
+      sent: false,
+      timeoutId: setTimeout(() => {}, 1000),
+    };
 
     expect(request.payload.type).toBe("admin.delete-identity");
     expect(request.sent).toBe(false);
@@ -247,13 +248,13 @@ describe("Sender type", () => {
 describe("frame caching logic", () => {
   test("stores frame in cache", () => {
     const cachedFrames = new Map<
-        string,
-        Map<number, { data: string; height: number; width: number }>
-      >(),
-      frameId = 1,
-      sessionId = "session-1",
-      frame = { data: "base64data", height: 720, width: 1280 },
-      frames = cachedFrames.get(sessionId) ?? new Map();
+      string,
+      Map<number, { data: string; height: number; width: number }>
+    >();
+    const frameId = 1;
+    const sessionId = "session-1";
+    const frame = { data: "base64data", height: 720, width: 1280 };
+    const frames = cachedFrames.get(sessionId) ?? new Map();
     frames.set(frameId, frame);
     cachedFrames.set(sessionId, frames);
 
@@ -261,10 +262,10 @@ describe("frame caching logic", () => {
   });
 
   test("evicts oldest frames when limit exceeded", () => {
-    const MAX_CACHED_FRAMES_PER_SESSION = 4,
-      frames = new Map<number, { data: string }>();
+    const MAX_CACHED_FRAMES_PER_SESSION = 4;
+    const frames = new Map<number, { data: string }>();
 
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 5; i += 1) {
       frames.set(i, { data: `frame-${i}` });
       while (frames.size > MAX_CACHED_FRAMES_PER_SESSION) {
         const oldestFrameId = Math.min(...frames.keys());
@@ -282,11 +283,11 @@ describe("frame caching logic", () => {
 describe("pending unknown tracks pruning", () => {
   test("removes stale tracks", () => {
     const pendingUnknownTracks = new Map<
-        string,
-        { firstSeenMs: number; hits: number; lastSeenMs: number }
-      >(),
-      AUTO_ENROLL_MAX_TRACK_STALENESS_MS = 4000,
-      now = Date.now();
+      string,
+      { firstSeenMs: number; hits: number; lastSeenMs: number }
+    >();
+    const AUTO_ENROLL_MAX_TRACK_STALENESS_MS = 4000;
+    const now = Date.now();
 
     pendingUnknownTracks.set("session-1:1", {
       firstSeenMs: now - 10_000,
@@ -312,42 +313,42 @@ describe("pending unknown tracks pruning", () => {
 
 describe("auto enrollment conditions", () => {
   test("meets minimum hits requirement", () => {
-    const AUTO_ENROLL_MIN_HITS = 6,
-      observedHits = 7;
+    const AUTO_ENROLL_MIN_HITS = 6;
+    const observedHits = 7;
     expect(observedHits >= AUTO_ENROLL_MIN_HITS).toBe(true);
   });
 
   test("meets minimum time requirement", () => {
-    const AUTO_ENROLL_MIN_MS = 1500,
-      now = Date.now(),
-      firstSeenMs = now - 2000;
+    const AUTO_ENROLL_MIN_MS = 1500;
+    const now = Date.now();
+    const firstSeenMs = now - 2000;
     expect(now - firstSeenMs >= AUTO_ENROLL_MIN_MS).toBe(true);
   });
 
   test("does not meet minimum hits", () => {
-    const AUTO_ENROLL_MIN_HITS = 6,
-      observedHits = 5;
+    const AUTO_ENROLL_MIN_HITS = 6;
+    const observedHits = 5;
     expect(observedHits >= AUTO_ENROLL_MIN_HITS).toBe(false);
   });
 
   test("does not meet minimum time", () => {
-    const AUTO_ENROLL_MIN_MS = 1500,
-      now = Date.now(),
-      firstSeenMs = now - 1000;
+    const AUTO_ENROLL_MIN_MS = 1500;
+    const now = Date.now();
+    const firstSeenMs = now - 1000;
     expect(now - firstSeenMs >= AUTO_ENROLL_MIN_MS).toBe(false);
   });
 });
 
 describe("confidence threshold for duplicate guard", () => {
   test("below threshold triggers potential enrollment", () => {
-    const AUTO_ENROLL_DUPLICATE_GUARD = 0.4,
-      confidence = 0.3;
+    const AUTO_ENROLL_DUPLICATE_GUARD = 0.4;
+    const confidence = 0.3;
     expect(confidence < AUTO_ENROLL_DUPLICATE_GUARD).toBe(true);
   });
 
   test("above threshold skips enrollment", () => {
-    const AUTO_ENROLL_DUPLICATE_GUARD = 0.4,
-      confidence = 0.5;
+    const AUTO_ENROLL_DUPLICATE_GUARD = 0.4;
+    const confidence = 0.5;
     expect(confidence >= AUTO_ENROLL_DUPLICATE_GUARD).toBe(true);
   });
 });
@@ -371,8 +372,8 @@ describe("identity sync status", () => {
 
 describe("admin request timeout", () => {
   test("timeout is set correctly", async () => {
-    const timeoutMs = 5000,
-      startTime = Date.now();
+    const timeoutMs = 5000;
+    const startTime = Date.now();
 
     await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -390,8 +391,8 @@ describe("reconnect scheduling", () => {
 
 describe("broadcast functionality", () => {
   test("broadcasts to all sessions", () => {
-    const sessions = new Map<string, { send: (msg: unknown) => void }>(),
-      messages: unknown[] = [];
+    const sessions = new Map<string, { send: (msg: unknown) => void }>();
+    const messages: unknown[] = [];
 
     sessions.set("session-1", { send: (msg) => messages.push(msg) });
     sessions.set("session-2", { send: (msg) => messages.push(msg) });

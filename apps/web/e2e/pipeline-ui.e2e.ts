@@ -1,3 +1,4 @@
+// oxlint-disable require-await
 import { expect, test } from "@playwright/test";
 
 const MOCK_RESULT = {
@@ -7,7 +8,7 @@ const MOCK_RESULT = {
     contentHash: "a".repeat(64),
     explorerUrl: "https://amoy.polygonscan.com/tx/0xabc",
     storedAt: 1,
-    txHash: "0x" + "b".repeat(64),
+    txHash: `0x${"b".repeat(64)}`,
   },
   blockchainError: null,
   cacheHit: false,
@@ -46,7 +47,7 @@ test.describe("Pipeline UI", () => {
 
     const button = page.locator("#pipeline-button");
     await expect(button).toBeVisible();
-    await expect(button).toContainText(/scan identity|rescan/);
+    await expect(button).toContainText(/scan identity|rescan/u);
     await expect(button).toBeEnabled();
 
     await expect(page.locator("#pipeline-hud")).toBeAttached();
@@ -81,7 +82,7 @@ test.describe("Pipeline UI", () => {
       )
       .toBe(true);
 
-    await expect(page.locator("#hud-status")).toContainText(/complete|result/);
+    await expect(page.locator("#hud-status")).toContainText(/complete|result/u);
     await expect(page.locator(".result-card")).toHaveCount(1);
     await expect(page.locator("#hud-verified-badge")).toContainText("verified");
     // Busy state cleared.
@@ -101,7 +102,7 @@ test.describe("Pipeline UI", () => {
     // Let any auto-trigger finish first.
     await expect(button).toBeEnabled({ timeout: 60_000 });
     await expect
-      .poll(async () => button.getAttribute("data-busy"), {
+      .poll(async () => await button.getAttribute("data-busy"), {
         intervals: [300],
         timeout: 30_000,
       })
@@ -110,7 +111,7 @@ test.describe("Pipeline UI", () => {
     await button.click();
     await expect(page.locator("#pipeline-hud")).toBeVisible();
     await expect(page.locator(".result-card")).toHaveCount(1);
-    await expect(page.locator("#hud-status")).toContainText(/complete|result/);
+    await expect(page.locator("#hud-status")).toContainText(/complete|result/u);
     await expect(button).toBeEnabled({ timeout: 30_000 });
   });
 
@@ -175,7 +176,7 @@ test.describe("Pipeline UI", () => {
       )
       .toBe(true);
 
-    await expect(page.locator("#hud-status")).toContainText(/failed/);
+    await expect(page.locator("#hud-status")).toContainText(/failed/u);
     await expect(page.locator("#hud-results")).toContainText(
       "No face detected"
     );

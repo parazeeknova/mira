@@ -1,9 +1,6 @@
-import {
-  Contract,
-  ContractTransactionResponse,
-  JsonRpcProvider,
-  Wallet,
-} from "ethers";
+// oxlint-disable max-classes-per-file, avoid-new
+import type { ContractTransactionResponse } from "ethers";
+import { Contract, JsonRpcProvider, Wallet } from "ethers";
 
 /**
  * Canonical, deterministic JSON serialization (sorted object keys, no
@@ -18,7 +15,15 @@ export const canonicalize = (value: unknown): string => {
   if (value !== null && typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>)
       .filter(([, v]) => v !== undefined)
-      .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+      .toSorted(([a], [b]) => {
+        if (a < b) {
+          return -1;
+        }
+        if (a > b) {
+          return 1;
+        }
+        return 0;
+      });
     return `{${entries
       .map(([k, v]) => `${JSON.stringify(k)}:${canonicalize(v)}`)
       .join(",")}}`;
@@ -32,7 +37,7 @@ export const sha256Hex = async (input: string): Promise<string> => {
     "SHA-256",
     new TextEncoder().encode(input)
   );
-  return Array.from(new Uint8Array(digest))
+  return [...new Uint8Array(digest)]
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 };
@@ -92,7 +97,7 @@ const withTimeout = <T>(
   makeError: () => Error
 ): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
+  const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(makeError()), timeoutMs);
   });
   return Promise.race([promise, timeout]).finally(() => {
@@ -109,7 +114,7 @@ export const buildHashableResult = (
   engines: [...result.engines].toSorted(),
 });
 
-export const contentHashOf = async (result: HashableResult): Promise<string> =>
+export const contentHashOf = (result: HashableResult): Promise<string> =>
   sha256Hex(canonicalize(result));
 
 export class BlockchainClient {
@@ -122,18 +127,18 @@ export class BlockchainClient {
 
   /** True when all required env vars are present. */
   isConfigured(): boolean {
-    return this.requiredEnv().every((k) => {
+    return BlockchainClient.requiredEnv().every((k) => {
       const v = this.env[k];
       return typeof v === "string" && v.trim().length > 0;
     });
   }
 
-  private requiredEnv(): string[] {
+  private static requiredEnv(): string[] {
     return ["AMOY_RPC_URL", "WALLET_PRIVATE_KEY", "FACE_RECORD_CONTRACT_ADDR"];
   }
 
   private missingEnv(): string[] {
-    return this.requiredEnv().filter((k) => {
+    return BlockchainClient.requiredEnv().filter((k) => {
       const v = this.env[k];
       return typeof v !== "string" || v.trim().length === 0;
     });
@@ -152,9 +157,12 @@ export class BlockchainClient {
     const provider = new JsonRpcProvider(this.env["AMOY_RPC_URL"], undefined, {
       staticNetwork: true,
     });
-    const signer = new Wallet(this.env["WALLET_PRIVATE_KEY"]!, provider);
+    const signer = new Wallet(
+      this.env["WALLET_PRIVATE_KEY"] as string,
+      provider
+    );
     this.contract = new Contract(
-      this.env["FACE_RECORD_CONTRACT_ADDR"]!,
+      this.env["FACE_RECORD_CONTRACT_ADDR"] as string,
       [
         "function store(bytes32 contentHash, string uri) external",
         "function verify(bytes32 contentHash) view returns (bool exists, string uri, uint64 timestamp, address submitter)",
@@ -213,7 +221,7 @@ export class BlockchainClient {
   /** Read back an on-chain record. Pure `eth_call` — no gas, no state change. */
   async verify(contentHash: string): Promise<VerifyResult> {
     const contract = this.getContract();
-    const bytes32 = `0x${contentHash.replace(/^0x/, "")}` as const;
+    const bytes32 = `0x${contentHash.replace(/^0x/u, "")}` as const;
 
     const verifyFn = contract["verify"] as (
       contentHash: string

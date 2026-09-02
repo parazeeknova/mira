@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "compile": "hardhat compile",
-    "test": "hardhat test test/FaceRecord.test.ts",
+    "test": "hardhat test test/face-record.test.ts",
     "node": "hardhat node",
     "deploy:local": "node --experimental-strip-types ../../scripts/deploy-contract.ts --network localhost",
     "clean": "hardhat clean",

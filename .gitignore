@@ -65,3 +65,5 @@ devenv.local.yaml
 
 # pre-commit
 .pre-commit-config.yaml
+fixtures/
+apps/web/e2e/fixtures/

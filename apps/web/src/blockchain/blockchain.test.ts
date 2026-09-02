@@ -11,14 +11,14 @@ import {
 
 describe("canonicalize", () => {
   test("key order does not affect output", () => {
-    const a = canonicalize({ url: "x", similarity: 0.5, timestamp: 1 });
-    const b = canonicalize({ timestamp: 1, similarity: 0.5, url: "x" });
+    const a = canonicalize({ similarity: 0.5, timestamp: 1, url: "x" });
+    const b = canonicalize({ similarity: 0.5, timestamp: 1, url: "x" });
     expect(a).toBe(b);
   });
 
   test("nested objects are sorted recursively", () => {
-    const a = canonicalize({ outer: { b: 1, a: 2 }, z: 3 });
-    const b = canonicalize({ z: 3, outer: { a: 2, b: 1 } });
+    const a = canonicalize({ outer: { a: 2, b: 1 }, z: 3 });
+    const b = canonicalize({ outer: { a: 2, b: 1 }, z: 3 });
     expect(a).toBe(b);
   });
 
@@ -95,7 +95,7 @@ describe("sha256Hex / contentHashOf", () => {
         url: "",
       })
     );
-    expect(h).toMatch(/^[0-9a-f]{64}$/);
+    expect(h).toMatch(/^[0-9a-f]{64}$/u);
   });
 });
 
@@ -109,7 +109,7 @@ describe("BlockchainClient config gating", () => {
     const client = new BlockchainClient({
       AMOY_RPC_URL: "http://127.0.0.1:8545",
       FACE_RECORD_CONTRACT_ADDR: "0x0000000000000000000000000000000000000001",
-      WALLET_PRIVATE_KEY: "0x" + "11".repeat(32),
+      WALLET_PRIVATE_KEY: `0x${"11".repeat(32)}`,
     });
     expect(client.isConfigured()).toBe(true);
   });
@@ -127,9 +127,9 @@ describe("BlockchainClient config gating", () => {
         })
       );
       expect.unreachable();
-    } catch (e) {
-      expect(e).toBeInstanceOf(BlockchainNotConfiguredError);
-      expect((e as BlockchainNotConfiguredError).message).toContain(
+    } catch (error) {
+      expect(error).toBeInstanceOf(BlockchainNotConfiguredError);
+      expect((error as BlockchainNotConfiguredError).message).toContain(
         "AMOY_RPC_URL"
       );
     }

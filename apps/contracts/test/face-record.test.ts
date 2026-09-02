@@ -1,25 +1,41 @@
-// @ts-nocheck — Hardhat contract types are generated at build time; TS7 strict would otherwise flag BaseContract
 import { expect } from "chai";
 import hre from "hardhat";
 import "@nomicfoundation/hardhat-chai-matchers";
 import "@nomicfoundation/hardhat-ethers";
 
+interface FaceRecordLike {
+  connect: (signer: unknown) => FaceRecordLike;
+  store: (hash: string, uri: string) => Promise<unknown>;
+  verify: (hash: string) => Promise<[boolean, string, bigint, string]>;
+  recordCount: () => Promise<bigint>;
+  filters: { RecordStored: (hash: string) => unknown };
+  queryFilter: (
+    filter: unknown
+  ) => Promise<{ args: Record<string, unknown> }[]>;
+  waitForDeployment: () => Promise<FaceRecordLike>;
+  getAddress: () => Promise<string>;
+  interface: unknown;
+}
+
 const { ethers } = hre;
 
-describe("FaceRecord", function () {
-  async function deployFixture() {
+const anyUint = (value: unknown): boolean =>
+  typeof value === "bigint" && value >= 0n;
+
+describe("FaceRecord", () => {
+  const deployFixture = async () => {
     const [deployer, submitter, other] = await ethers.getSigners();
-    const FaceRecord = await ethers.getContractFactory("FaceRecord");
-    const faceRecord = await FaceRecord.deploy();
+    const factory = await ethers.getContractFactory("FaceRecord");
+    const faceRecord = (await factory.deploy()) as unknown as FaceRecordLike;
     await faceRecord.waitForDeployment();
-    return { faceRecord, deployer, submitter, other };
-  }
+    return { deployer, faceRecord, other, submitter };
+  };
 
   const contentHash = ethers.id("canonical-json-payload");
   const uri = "https://example.com/proof";
 
-  describe("store", function () {
-    it("stores a record and emits RecordStored", async function () {
+  describe("store", () => {
+    it("stores a record and emits RecordStored", async () => {
       const { faceRecord, submitter } = await deployFixture();
 
       await expect(faceRecord.connect(submitter).store(contentHash, uri))
@@ -30,7 +46,7 @@ describe("FaceRecord", function () {
       expect(count).to.equal(1n);
     });
 
-    it("reverts AlreadyStored on duplicate hash", async function () {
+    it("reverts AlreadyStored on duplicate hash", async () => {
       const { faceRecord } = await deployFixture();
       await faceRecord.store(contentHash, uri);
 
@@ -39,14 +55,14 @@ describe("FaceRecord", function () {
         .withArgs(contentHash);
     });
 
-    it("reverts EmptyUri on empty uri string", async function () {
+    it("reverts EmptyUri on empty uri string", async () => {
       const { faceRecord } = await deployFixture();
       await expect(
         faceRecord.store(contentHash, "")
       ).to.be.revertedWithCustomError(faceRecord, "EmptyUri");
     });
 
-    it("stores distinct hashes independently", async function () {
+    it("stores distinct hashes independently", async () => {
       const { faceRecord } = await deployFixture();
       const otherHash = ethers.id("second-payload");
 
@@ -56,7 +72,7 @@ describe("FaceRecord", function () {
       expect(await faceRecord.recordCount()).to.equal(2n);
     });
 
-    it("rejects identical content re-store from a different address", async function () {
+    it("rejects identical content re-store from a different address", async () => {
       const { faceRecord, other } = await deployFixture();
       await faceRecord.store(contentHash, uri);
 
@@ -66,8 +82,8 @@ describe("FaceRecord", function () {
     });
   });
 
-  describe("verify", function () {
-    it("returns exists=true with stored fields", async function () {
+  describe("verify", () => {
+    it("returns exists=true with stored fields", async () => {
       const { faceRecord, submitter } = await deployFixture();
       await faceRecord.connect(submitter).store(contentHash, uri);
 
@@ -80,7 +96,7 @@ describe("FaceRecord", function () {
       expect(submitterAddr).to.equal(submitter.address);
     });
 
-    it("returns exists=false with zeroed fields for unknown hash", async function () {
+    it("returns exists=false with zeroed fields for unknown hash", async () => {
       const { faceRecord } = await deployFixture();
       const unknownHash = ethers.id("never-stored");
 
@@ -93,7 +109,7 @@ describe("FaceRecord", function () {
       expect(submitterAddr).to.equal(ethers.ZeroAddress);
     });
 
-    it("does not reveal a record before storage via event index", async function () {
+    it("does not reveal a record before storage via event index", async () => {
       const { faceRecord } = await deployFixture();
       const filter = faceRecord.filters.RecordStored(contentHash);
       const events = await faceRecord.queryFilter(filter);
@@ -106,13 +122,13 @@ describe("FaceRecord", function () {
     });
   });
 
-  describe("recordCount", function () {
-    it("starts at zero", async function () {
+  describe("recordCount", () => {
+    it("starts at zero", async () => {
       const { faceRecord } = await deployFixture();
       expect(await faceRecord.recordCount()).to.equal(0n);
     });
 
-    it("increments only for unique hashes", async function () {
+    it("increments only for unique hashes", async () => {
       const { faceRecord } = await deployFixture();
       await faceRecord.store(ethers.id("a"), uri);
       await faceRecord.store(ethers.id("b"), uri);
@@ -122,8 +138,3 @@ describe("FaceRecord", function () {
     });
   });
 });
-
-// helper used in the withArgs assertion above
-function anyUint(value: unknown): boolean {
-  return typeof value === "bigint" && value >= 0n;
-}

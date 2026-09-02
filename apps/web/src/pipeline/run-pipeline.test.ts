@@ -1,12 +1,12 @@
 import { describe, expect, test, afterEach } from "bun:test";
 
-import type { PipelineImage } from "./protocol";
 import {
   PipelineBusyError,
   PythonDisconnectedError,
   PipelineTimeoutError,
   PythonBridge,
-} from "./python-bridge";
+} from "../bridge/python-bridge";
+import type { PipelineImage } from "../protocol/protocol";
 
 const IMG: PipelineImage = {
   data: "aGVsbG8=",
@@ -64,7 +64,7 @@ afterEach(() => {
 /** Install fake + drive the bridge's own connection flow to OPEN. */
 const connectFake = (bridge: PythonBridge): FakeUpstream => {
   stubGlobalWebSocket();
-  (bridge as unknown as { ensureConnection(): void }).ensureConnection();
+  (bridge as unknown as { ensureConnection: () => void }).ensureConnection();
   const fake = (bridge as unknown as { upstream: FakeUpstream }).upstream;
   fake.open();
   return fake;
@@ -74,31 +74,31 @@ const rejectionOf = async (p: Promise<unknown>): Promise<unknown> => {
   try {
     await p;
     return null;
-  } catch (e) {
-    return e;
+  } catch (error) {
+    return error;
   }
 };
 
 const makeResult = (sessionId: string) => ({
-  type: "pipeline.result",
-  sessionId,
-  results: [],
   anchorStrategy: "search",
-  enginesUsed: ["google-vision"],
   cacheHit: false,
+  enginesUsed: ["google-vision"],
   inputFaceHash: "f".repeat(64),
+  results: [],
+  sessionId,
+  type: "pipeline.result",
 });
 
 describe("runPipeline", () => {
   test("queues when socket is CONNECTING, flushes once OPEN", async () => {
     stubGlobalWebSocket();
     const bridge = new PythonBridge("ws://127.0.0.1:1");
-    (bridge as unknown as { ensureConnection(): void }).ensureConnection();
+    (bridge as unknown as { ensureConnection: () => void }).ensureConnection();
     // Socket is CONNECTING → request must be queued, not rejected.
     const pending = bridge.runPipeline("s1", IMG, 500);
     const fake = (bridge as unknown as { upstream: FakeUpstream }).upstream;
     fake.open();
-    const sent = JSON.parse(fake.sent[0]!);
+    const sent = JSON.parse(fake.sent[0] as string);
     expect(sent.type).toBe("pipeline.run");
     fake.emit(JSON.stringify(makeResult("s1")));
     const result = (await pending) as unknown as { sessionId: string };
@@ -110,7 +110,7 @@ describe("runPipeline", () => {
     const fake = connectFake(bridge);
     const pending = bridge.runPipeline("s1", IMG, 500);
     expect(fake.sent).toHaveLength(1);
-    const sent = JSON.parse(fake.sent[0]!);
+    const sent = JSON.parse(fake.sent[0] as string);
     expect(sent.type).toBe("pipeline.run");
     expect(sent.sessionId).toBe("s1");
     expect(sent.image).toEqual(IMG);

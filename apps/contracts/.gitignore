@@ -1,7 +1,10 @@
-
 # Hardhat
-contracts/cache
-contracts/artifacts
-contracts/typechain-types
-contracts/coverage.json
+cache/
 artifacts/
+typechain-types/
+coverage.json
+coverage/
+# Node
+node_modules/
+# Forge (if used)
+out/
