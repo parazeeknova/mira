@@ -2,12 +2,6 @@ name: Deploy Mira Web
 
 on:
   workflow_dispatch:
-  # push:
-  #   branches:
-  #     - main
-  #   paths:
-  #     - "apps/web/**"
-  #     - ".github/workflows/web-deploy.yml"
 
 concurrency:
   group: web-deploy-${{ github.ref }}

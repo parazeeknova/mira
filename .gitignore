@@ -32,6 +32,7 @@ apps/serve/.insightface/
 apps/serve/.mplconfig/
 __pycache__/
 *.pyc
+cache/
 
 
 # Debug
