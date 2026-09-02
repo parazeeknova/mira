@@ -1,4 +1,3 @@
-const { HardhatUserConfig } = require("hardhat/config");
 require("@nomicfoundation/hardhat-ethers");
 require("@nomicfoundation/hardhat-chai-matchers");
 

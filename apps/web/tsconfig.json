@@ -1,21 +1,18 @@
 {
   "compilerOptions": {
-    // Environment setup & latest features
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
     "jsx": "react-jsx",
     "allowJs": true,
-
-    // Bundler mode
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": false,
     "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": false,
     "types": ["bun"],
     "noEmit": true,
-
-    // Best practices
     "strict": true,
     "skipLibCheck": true,
     "exactOptionalPropertyTypes": true,

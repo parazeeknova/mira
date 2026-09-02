@@ -28,9 +28,9 @@ if (!rpcUrl) {
   process.exit(1);
 }
 
-const artifactPath = resolve(import.meta.dir, "../contracts/artifacts/contracts/FaceRecord.sol/FaceRecord.json");
+const artifactPath = resolve(import.meta.dir, "../apps/contracts/artifacts/contracts/FaceRecord.sol/FaceRecord.json");
 if (!existsSync(artifactPath)) {
-  console.error("Artifact not found. Run: cd contracts && bunx --node hardhat compile");
+  console.error("Artifact not found. Run: cd apps/contracts && bunx --node hardhat compile");
   process.exit(1);
 }
 const artifact = JSON.parse(readFileSync(artifactPath, "utf8")) as Artifact;

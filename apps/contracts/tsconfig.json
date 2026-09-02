@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    // TS7 (tsgo) — NodeNext is the TS7 replacement for deprecated `node`/`node10`
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["chai", "mocha", "node"],
+    "verbatimModuleSyntax": false,
+    "erasableSyntaxOnly": false,
+    "noEmit": true
+  },
+  "include": ["./hardhat.config.cjs", "./test", "./contracts"]
+}

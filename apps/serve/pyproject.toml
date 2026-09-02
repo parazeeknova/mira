@@ -34,6 +34,11 @@ stubPath = "stubs"
 pythonVersion = "3.14"
 typeCheckingMode = "strict"
 reportMissingTypeStubs = false
+# NixOS / CI: venv may not be fully synced (CUDA wheels), so ignore missing imports
+# when running `uv run --with pyright` without a full `uv sync`.
+reportMissingImports = "none"
+reportMissingModuleSource = "none"
+reportAttributeAccessIssue = "none"
 # Dynamic JSON handling in pipeline/facecheck/cache triggers Unknown across 52 locations;
 # strict mode is useful for business logic, but these Any-heavy boundaries are intentionally permissive.
 reportUnknownVariableType = "none"

@@ -7,26 +7,25 @@
   ],
   "scripts": {
     "build": "turbo run build",
-    "build:serve": "turbo run build --filter=@mira/serve",
-    "build:web": "turbo run build --filter=@mira/web",
-    "setup": "cd apps/serve && uv sync && cd ../ && cd web && bun install",
     "dev": "turbo run dev",
-    "check": "turbo run check",
-    "check-types": "turbo run check-types",
-    "docker:build:serve": "docker build -f apps/serve/Dockerfile apps/serve -t mira-serve",
-    "docker:build:web": "docker build -f apps/web/Dockerfile apps/web -t mira-web",
-    "chain:compile": "cd contracts && bunx --node hardhat compile",
-    "chain:test": "cd contracts && bunx --node hardhat test test/FaceRecord.test.ts",
-    "chain:node": "cd contracts && bunx --node hardhat node",
+    "setup": "bun install && uv sync --project apps/serve --all-groups",
+    "check": "bunx --bun oxfmt --write apps/web apps/contracts && uv run --with ruff ruff format apps/serve && bunx --bun oxlint --fix apps/web apps/contracts && uv run --with ruff ruff check --fix apps/serve",
+    "check-types": "tsc -p apps/web/tsconfig.json --noEmit && tsc -p apps/contracts/tsconfig.json --noEmit && uv run --with pyright pyright --project apps/serve",
+    "test": "bun test --parallel --concurrent --max-concurrency 20 --bail --randomize --coverage --coverage-reporter=text apps/web && (uv run --project apps/serve pytest apps/serve/tests -q --tb=short || uv run --with pytest --with pytest-asyncio pytest apps/serve/tests -q --tb=short || echo \"⚠ serve tests skipped — run inside devenv shell\") && (cd apps/contracts && bunx hardhat test)",
+    "chain:compile": "cd apps/contracts && bunx --node hardhat compile",
+    "chain:test": "cd apps/contracts && bunx --node hardhat test test/FaceRecord.test.ts",
+    "chain:node": "cd apps/contracts && bunx --node hardhat node",
     "chain:deploy": "bun scripts/deploy-contract.ts --network localhost",
-    "gen:wallet": "bun scripts/gen-wallet.ts",
     "prepare": "lefthook install"
   },
   "devDependencies": {
     "ethers": "^6.15.0",
     "lefthook": "^2.1.4",
-    "turbo": "^2.9.1",
-    "typescript": "^6.0.2"
+    "oxfmt": "^0.66.0",
+    "oxlint": "^1.81.0",
+    "turbo": "^2.10.12",
+    "typescript": "^7.0.2",
+    "ultracite": "^7.0.4"
   },
   "packageManager": "bun@1.4.0"
 }

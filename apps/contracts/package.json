@@ -6,8 +6,10 @@
     "compile": "hardhat compile",
     "test": "hardhat test test/FaceRecord.test.ts",
     "node": "hardhat node",
-    "deploy:local": "node --experimental-strip-types ../scripts/deploy-contract.ts --network localhost",
-    "clean": "hardhat clean"
+    "deploy:local": "node --experimental-strip-types ../../scripts/deploy-contract.ts --network localhost",
+    "clean": "hardhat clean",
+    "check": "oxlint --fix . && oxfmt --write .",
+    "check-types": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.1.0",
@@ -18,7 +20,9 @@
     "chai": "^4.5.0",
     "ethers": "^6.15.0",
     "hardhat": "^2.26.0",
+    "oxfmt": "^0.66.0",
+    "oxlint": "^1.81.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.0"
+    "typescript": "^7.0.2"
   }
 }

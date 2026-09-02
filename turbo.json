@@ -4,7 +4,7 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": ["dist/**"],
+      "outputs": ["dist/**", "artifacts/**", "cache/**"],
       "cache": true
     },
     "check": {
@@ -16,6 +16,11 @@
       "dependsOn": ["^check-types"],
       "cache": true,
       "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "outputs": ["coverage/**"]
     },
     "dev": {
       "cache": false,

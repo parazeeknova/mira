@@ -53,3 +53,15 @@ playwright-report
 data/
 apps/data/
 image2.jpeg
+
+# Devenv
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+.ruff_cache
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml

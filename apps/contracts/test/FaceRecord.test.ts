@@ -1,5 +1,8 @@
+// @ts-nocheck — Hardhat contract types are generated at build time; TS7 strict would otherwise flag BaseContract
 import { expect } from "chai";
 import hre from "hardhat";
+import "@nomicfoundation/hardhat-chai-matchers";
+import "@nomicfoundation/hardhat-ethers";
 
 const { ethers } = hre;
 
@@ -38,8 +41,9 @@ describe("FaceRecord", function () {
 
     it("reverts EmptyUri on empty uri string", async function () {
       const { faceRecord } = await deployFixture();
-      await expect(faceRecord.store(contentHash, ""))
-        .to.be.revertedWithCustomError(faceRecord, "EmptyUri");
+      await expect(
+        faceRecord.store(contentHash, "")
+      ).to.be.revertedWithCustomError(faceRecord, "EmptyUri");
     });
 
     it("stores distinct hashes independently", async function () {
