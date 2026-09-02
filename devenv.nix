@@ -22,6 +22,12 @@
       pkgs.stdenv.cc.cc.lib
       pkgs.libGL
       pkgs.glib
+      pkgs.libxcb
+      pkgs.libxcb
+      pkgs.libx11
+      pkgs.libxext
+      pkgs.libxrender
+      pkgs.libSM
     ];
   };
 
