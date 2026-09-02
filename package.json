@@ -7,12 +7,13 @@
   ],
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "bun run dev:clean && turbo run dev",
     "setup": "bun install && cd apps/serve && uv sync --all-groups && cd ../..",
     "check": "turbo run check",
     "check-types": "turbo run check-types",
     "test": "turbo run test",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "dev:clean": "for port in 3000 8765 8545; do pids=$(ss -ltnp 2>/dev/null | grep \":$port \" | grep -oE \"pid=[0-9]+\" | cut -d= -f2 | sort -u); if [ -n \"$pids\" ]; then echo \"cleaning orphan on :$port: $pids\"; echo \"$pids\" | xargs -r kill 2>/dev/null || true; fi; done"
   },
   "devDependencies": {
     "lefthook": "^2.1.4",

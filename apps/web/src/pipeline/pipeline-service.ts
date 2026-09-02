@@ -1,6 +1,4 @@
 // oxlint-disable complexity, avoid-new, param-names
-import sharp from "sharp";
-
 import { buildHashableResult, contentHashOf } from "../blockchain/blockchain";
 import type { BlockchainClient, ChainRecord } from "../blockchain/blockchain";
 import {
@@ -162,10 +160,10 @@ const parseMaxWidth = (): number => {
 const RESIZE_TIMEOUT_MS = 5000;
 
 /**
- * Best-effort downscale before shipping the image to Python. Sharp can hang
- * under some Bun/native-threadpool combinations — a timeout here degrades to
- * forwarding the original bytes (Python's PIL + InsightFace handle arbitrary
- * sizes; InsightFace resizes to 320px detector input internally anyway).
+ * Best-effort downscale before shipping the image to Python. A timeout here
+ * degrades to forwarding the original bytes (Python's PIL + InsightFace
+ * handle arbitrary sizes; InsightFace resizes to 320px detector input
+ * internally anyway).
  */
 const withTimeout = <T>(
   promise: Promise<T>,
@@ -188,19 +186,22 @@ const resizeImage = async (
 ): Promise<{ data: string; height: number; width: number }> => {
   const maxWidth = parseMaxWidth();
   const input = Buffer.from(bytes);
-  // Single pipeline pass; resolveWithObject returns buffer + metadata together.
-  const { data, info } = await withTimeout(
-    sharp(input)
-      .resize({ width: maxWidth, withoutEnlargement: true })
-      .jpeg({ mozjpeg: true, quality: 88 })
-      .toBuffer({ resolveWithObject: true }),
+  const img = new Bun.Image(input)
+    .resize(maxWidth, maxWidth, {
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: 88 });
+  const out = await withTimeout(
+    img.bytes(),
     RESIZE_TIMEOUT_MS,
-    () => new Error(`sharp resize timed out after ${RESIZE_TIMEOUT_MS}ms`)
+    () => new Error(`image resize timed out after ${RESIZE_TIMEOUT_MS}ms`)
   );
+  const dims = await new Bun.Image(out).metadata();
   return {
-    data: data.toString("base64"),
-    height: info.height,
-    width: info.width,
+    data: Buffer.from(out).toString("base64"),
+    height: dims.height,
+    width: dims.width,
   };
 };
 

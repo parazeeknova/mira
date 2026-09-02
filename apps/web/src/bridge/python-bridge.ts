@@ -1,6 +1,4 @@
 // oxlint-disable max-classes-per-file
-import sharp from "sharp";
-
 import {
   getEnrollmentIdentity,
   isEnrollmentStoreConfigured,
@@ -677,6 +675,9 @@ export class PythonBridge {
       throw new Error("Auto enrollment crop was empty.");
     }
 
+    // Bun.Image can resize but not crop; sharp is only needed for this rare
+    // auto-enrollment path, so load it lazily to keep startup sharp-free.
+    const { default: sharp } = await import("sharp");
     const cropped = await sharp(Buffer.from(frame.data, "base64"))
       .extract({
         height,

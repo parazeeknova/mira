@@ -5,7 +5,7 @@
   "module": "src/server/index.ts",
   "scripts": {
     "build": "mkdir -p dist && bun build --target=bun --production --minify --sourcemap --external sharp --outdir dist ./src/server/index.ts && cp -R src/client/. dist/client/ 2>/dev/null || true",
-    "dev": "bun --env-file=../../.env.development --env-file=../../.env --watch src/server/index.ts",
+    "dev": "LD_LIBRARY_PATH=/nix/store/0vqb1mcas5j8dv6bhbrshinlgsg6bvgi-gcc-15.3.0-lib/lib:/nix/store/l3p6y554mkxi4vipnnp8809kxj0g1lyv-zlib-1.3.2/lib:/usr/lib:${LD_LIBRARY_PATH:-} bun --env-file=../../.env.development --env-file=../../.env --watch src/server/index.ts",
     "start": "NODE_ENV=production bun --env-file=../../.env.development --env-file=../../.env dist/index.js",
     "check": "oxlint --fix . && oxfmt --write .",
     "check-types": "tsc -p tsconfig.json --noEmit",
