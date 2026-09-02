@@ -28,7 +28,6 @@ from enrollment.enrollment import (
     build_source,
     source_signature,
 )
-from enrollment.enrollment_sync import load_remote_enrollment_sources
 from protocol.protocol import dumps, expect_type, parse_message
 from tracking.tracking import MatchCandidate, TrackingController
 
@@ -72,7 +71,6 @@ class FaceRecognitionService:
         self._enrollment_sources: tuple[EnrollmentSource, ...] = tuple()
         self._index_lock = asyncio.Lock()
         self._reload_task: asyncio.Task[None] | None = None
-        self._sync_warning: str | None = None
 
     @property
     def analysis(self) -> FaceAnalysis:
@@ -82,15 +80,11 @@ class FaceRecognitionService:
         return self._decode_image_bytes(data)
 
     async def start(self) -> None:
-        if self._settings.enrollment_sync_enabled:
-            await self._sync_remote_enrollment()
         await asyncio.to_thread(self.rebuild_index, True)
         self._reload_task = asyncio.create_task(self._reload_loop())
 
     async def refresh_enrollment(self) -> bool:
         async with self._index_lock:
-            if self._settings.enrollment_sync_enabled:
-                await self._sync_remote_enrollment()
             return await asyncio.to_thread(self.rebuild_index, True)
 
     async def stop(self) -> None:
@@ -117,12 +111,9 @@ class FaceRecognitionService:
             "enrollment": {
                 "diagnostics": list(self._index_state.diagnostics),
                 "identities": len(self._index_state.records),
-                "source": self._settings.enrollment_sync_base_url or "memory",
+                "source": "memory",
                 "version": self._index_state.version,
-                "warnings": [
-                    *list(self._index_state.warnings),
-                    *([self._sync_warning] if self._sync_warning is not None else []),
-                ],
+                "warnings": list(self._index_state.warnings),
             },
             "trackingConfig": {
                 "boxSmoothingAlpha": self._settings.tracker_box_smoothing_alpha,
@@ -496,21 +487,7 @@ class FaceRecognitionService:
         while True:
             await asyncio.sleep(self._settings.reload_interval_seconds)
             async with self._index_lock:
-                if self._settings.enrollment_sync_enabled:
-                    await self._sync_remote_enrollment()
                 await asyncio.to_thread(self.rebuild_index, False)
-
-    async def _sync_remote_enrollment(self) -> None:
-        try:
-            self._enrollment_sources = await asyncio.to_thread(
-                load_remote_enrollment_sources,
-                self._settings,
-            )
-            self._sync_warning = None
-        except Exception as error:
-            self._sync_warning = (
-                f"Remote enrollment sync failed: {error.__class__.__name__}: {error}"
-            )
 
     def _parse_admin_images(
         self,

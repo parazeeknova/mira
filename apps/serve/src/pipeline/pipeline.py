@@ -19,9 +19,9 @@ from search.search import ReverseImageSearch, SearchResult
 if TYPE_CHECKING:
     from insightface.app import Face
 
-    from .cache import EmbeddingCache
-    from .service import FaceRecognitionService
-    from .similarity import ArcFaceSimilarity
+    from cache.cache import EmbeddingCache
+    from service.service import FaceRecognitionService
+    from search.similarity import ArcFaceSimilarity
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ class Pipeline:
             self._cache = cache
         else:
             try:
-                from .cache import EmbeddingCache as _EC  # noqa: PLC0415
+                from cache.cache import EmbeddingCache as _EC  # noqa: PLC0415
 
                 self._cache = _EC(settings)
             except Exception as e:
@@ -130,7 +130,7 @@ class Pipeline:
             self._similarity = similarity
         else:
             try:
-                from .similarity import ArcFaceSimilarity as _AS  # noqa: PLC0415
+                from search.similarity import ArcFaceSimilarity as _AS  # noqa: PLC0415
 
                 self._similarity = _AS(settings)
             except Exception as e:

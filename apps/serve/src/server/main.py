@@ -199,7 +199,7 @@ async def main() -> None:
                     loop.add_signal_handler(shutdown_signal, server.close)
             print(
                 f"Mira serve listening on ws://{settings.host}:{settings.port} "
-                f"(enrollment source: {settings.enrollment_sync_base_url or 'memory'})"
+                "(enrollment source: memory)"
             )
             await server.wait_closed()
     finally:
