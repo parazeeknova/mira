@@ -107,37 +107,6 @@ const providersValue = requiredNode<HTMLElement>("#providers-value");
 const trackingValue = requiredNode<HTMLElement>("#tracking-value");
 const enrollmentValue = requiredNode<HTMLElement>("#enrollment-value");
 const indexValue = requiredNode<HTMLElement>("#index-value");
-const enrollmentForm = requiredNode<HTMLFormElement>("#enrollment-form");
-const enrollmentStatus = requiredNode<HTMLElement>("#enrollment-status");
-const enrollSubmitButton = requiredNode<HTMLElement>("#enroll-submit-button");
-const enrollmentList = requiredNode<HTMLElement>("#enrollment-list");
-const enrollmentDiagnostics = requiredNode<HTMLElement>(
-  "#enrollment-diagnostics"
-);
-const identityNameInput = requiredNode<HTMLInputElement>(
-  "#identity-name-input"
-);
-const identityWorksAtInput = requiredNode<HTMLInputElement>(
-  "#identity-works-at-input"
-);
-const identityColorInput = requiredNode<HTMLInputElement>(
-  "#identity-color-input"
-);
-const identityLinkedinInput = requiredNode<HTMLInputElement>(
-  "#identity-linkedin-input"
-);
-const identityGithubInput = requiredNode<HTMLInputElement>(
-  "#identity-github-input"
-);
-const identityEmailInput = requiredNode<HTMLInputElement>(
-  "#identity-email-input"
-);
-const identityPhoneInput = requiredNode<HTMLInputElement>(
-  "#identity-phone-input"
-);
-const identityFilesInput = requiredNode<HTMLInputElement>(
-  "#identity-files-input"
-);
 const intervalInput = requiredNode<HTMLInputElement>("#interval-input");
 const intervalValue = requiredNode<HTMLElement>("#interval-value");
 const qualityInput = requiredNode<HTMLInputElement>("#quality-input");
@@ -146,22 +115,8 @@ const qualityValue = requiredNode<HTMLElement>("#quality-value");
 const camera = createCameraController(cameraFeed, overlayCanvas, captureCanvas);
 
 const state = {
-  editingIdentityId: null as string | null,
-  enrollmentDiagnostics: [] as {
-    embeddingCount: number;
-    fileCount: number;
-    id: string;
-    name: string;
-    warnings: string[];
-  }[],
-  enrollmentIdentities: [] as {
-    files: string[];
-    id: string;
-    metadata: Omit<Identity, "id" | "syncStatus">;
-  }[],
   frameId: 0,
   framesProcessed: 0,
-  identitySyncStates: new Map<string, { error?: string; status: string }>(),
   lastCompletedFrameId: 0,
   lastResultFrameId: -1,
   pipeline: {
@@ -180,88 +135,9 @@ const state = {
   sourceSize: { height: 0, width: 0 },
 };
 
-const renderEnrollmentList = (): void => {
-  enrollmentList.replaceChildren();
-
-  for (const identity of state.enrollmentIdentities) {
-    const syncState = state.identitySyncStates.get(identity.id);
-    const syncSuffix =
-      syncState === undefined || syncState.status === "ready"
-        ? ""
-        : ` · ${syncState.status}`;
-    const row = document.createElement("div");
-    row.className = "identity-row";
-    row.innerHTML = `
-      <div>
-        <strong>${identity.metadata.name}</strong>
-        <span>${identity.id} · ${identity.files.length} file(s)${syncSuffix}</span>
-      </div>
-      <div class="identity-actions">
-        <button class="identity-edit" data-id="${identity.id}" type="button">Edit</button>
-        <button class="identity-delete" data-id="${identity.id}" type="button">Delete</button>
-      </div>
-    `;
-    enrollmentList.append(row);
-  }
-
-  if (state.enrollmentIdentities.length === 0) {
-    const empty = document.createElement("span");
-    empty.className = "option-note";
-    empty.textContent = "no identities";
-    enrollmentList.append(empty);
-  }
-};
-
 const updateCameraFlipButton = (): void => {
   cameraFlipButton.textContent =
     camera.facingMode === "user" ? "rear" : "front";
-};
-
-const setEnrollmentFormMode = (
-  identity: (typeof state.enrollmentIdentities)[number] | null
-): void => {
-  state.editingIdentityId = identity?.id ?? null;
-
-  if (identity === null) {
-    enrollmentForm.reset();
-    identityColorInput.value = "#4ee3ff";
-    identityFilesInput.value = "";
-    enrollSubmitButton.textContent = "Upload";
-    return;
-  }
-
-  identityNameInput.value = identity.metadata.name;
-  identityWorksAtInput.value = identity.metadata.worksAt ?? "";
-  identityColorInput.value = identity.metadata.color;
-  identityLinkedinInput.value = identity.metadata.linkedinId ?? "";
-  identityGithubInput.value = identity.metadata.githubUsername ?? "";
-  identityEmailInput.value = identity.metadata.email ?? "";
-  identityPhoneInput.value = identity.metadata.phoneNumber ?? "";
-  identityFilesInput.value = "";
-  enrollSubmitButton.textContent = "Save";
-  enrollmentStatus.textContent = `editing ${identity.id}`;
-};
-
-const renderEnrollmentDiagnostics = (): void => {
-  enrollmentDiagnostics.replaceChildren();
-
-  for (const diagnostic of state.enrollmentDiagnostics) {
-    const row = document.createElement("div");
-    row.className = "diagnostic-row";
-    row.innerHTML = `
-      <strong>${diagnostic.name} (${diagnostic.id})</strong>
-      <span>${diagnostic.embeddingCount} embedding(s) from ${diagnostic.fileCount} file(s)</span>
-      <span>${diagnostic.warnings.length > 0 ? diagnostic.warnings.join(" | ") : "ok"}</span>
-    `;
-    enrollmentDiagnostics.append(row);
-  }
-
-  if (state.enrollmentDiagnostics.length === 0) {
-    const empty = document.createElement("span");
-    empty.className = "option-note";
-    empty.textContent = "no diagnostics";
-    enrollmentDiagnostics.append(empty);
-  }
 };
 
 const applyEnrollmentSnapshot = (enrollment: unknown): void => {
@@ -271,15 +147,8 @@ const applyEnrollmentSnapshot = (enrollment: unknown): void => {
 
   const snapshot = enrollment as Record<string, unknown>;
 
-  if (Array.isArray(snapshot["diagnostics"])) {
-    state.enrollmentDiagnostics = snapshot[
-      "diagnostics"
-    ] as typeof state.enrollmentDiagnostics;
-    renderEnrollmentDiagnostics();
-  }
-
   if (typeof snapshot["identities"] === "number") {
-    enrollmentValue.textContent = `${snapshot["identities"]} identities`;
+    enrollmentValue.textContent = String(snapshot["identities"]);
   }
 
   if (typeof snapshot["version"] === "number") {
@@ -292,68 +161,11 @@ const loadEnrollmentList = async (): Promise<void> => {
   const payload = (await response.json()) as {
     enrollment: unknown;
     error?: string;
-    identities: typeof state.enrollmentIdentities;
   };
   if (!response.ok) {
     throw new Error(payload.error ?? "Failed to load enrollment list.");
   }
-
-  state.enrollmentIdentities = payload.identities;
   applyEnrollmentSnapshot(payload.enrollment);
-  renderEnrollmentList();
-};
-
-const optionalInputValue = (input: HTMLInputElement): string | undefined => {
-  const normalized = input.value.trim();
-  return normalized.length > 0 ? normalized : undefined;
-};
-
-const collectEnrollmentSubmission = ():
-  | { error: string }
-  | { form: FormData }
-  | null => {
-  const { files } = identityFilesInput;
-  if (
-    state.editingIdentityId === null &&
-    (files === null || files.length === 0)
-  ) {
-    return { error: "select at least one file" };
-  }
-
-  const form = new FormData();
-  form.set("name", identityNameInput.value.trim());
-  form.set("color", identityColorInput.value.trim());
-
-  const optionalFields = [
-    ["worksAt", optionalInputValue(identityWorksAtInput)],
-    ["linkedinId", optionalInputValue(identityLinkedinInput)],
-    ["githubUsername", optionalInputValue(identityGithubInput)],
-    ["email", optionalInputValue(identityEmailInput)],
-    ["phoneNumber", optionalInputValue(identityPhoneInput)],
-  ] as const;
-
-  for (const [field, value] of optionalFields) {
-    if (value !== undefined) {
-      form.set(field, value);
-    }
-  }
-
-  if (state.editingIdentityId === null && files !== null) {
-    for (const file of files) {
-      form.append("files", file);
-    }
-  }
-
-  return { form };
-};
-
-const applyEnrollmentReload = (payload: {
-  identities: typeof state.enrollmentIdentities;
-  reload?: { enrollment?: unknown; ok?: boolean };
-}): void => {
-  state.enrollmentIdentities = payload.identities;
-  applyEnrollmentSnapshot(payload.reload?.enrollment ?? null);
-  renderEnrollmentList();
 };
 
 const getIdentityDetailRows = (identity: Identity | null): TrackDetailRow[] => {
@@ -394,12 +206,9 @@ const updateRenderTracks = (message: FrameResultPayload): void => {
     const fromBox = existing ? getTrackBox(existing, now) : cloneBox(face.bbox);
     const { identity } = face;
     const syncState =
-      identity === null
+      identity === null || identity.syncStatus === undefined
         ? undefined
-        : (state.identitySyncStates.get(identity.id) ??
-          (identity.syncStatus === undefined
-            ? undefined
-            : { status: identity.syncStatus }));
+        : { status: identity.syncStatus };
     const confidenceText = `${(face.confidence * 100).toFixed(0)}%`;
     const detailRows = withSyncDetail(
       getIdentityDetailRows(identity),
@@ -829,21 +638,6 @@ const restartSampler = (): void => {
   }, state.sampling.intervalMs);
 };
 
-const handleEnrollmentSyncMessage = (message: {
-  error?: string;
-  identityId: string;
-  status: string;
-}): void => {
-  state.identitySyncStates.set(message.identityId, {
-    ...(message.error === undefined ? {} : { error: message.error }),
-    status: message.status,
-  });
-  renderEnrollmentList();
-  if (message.status === "ready") {
-    void loadEnrollmentList();
-  }
-};
-
 const handleSessionReadyMessage = (message: {
   sampling: { intervalMs: number; jpegQuality: number; maxWidth: number };
   sessionId: string;
@@ -915,12 +709,6 @@ const handlePythonStatusMessage = (message: {
 
 const handleServerMessage = (message: Record<string, unknown>): void => {
   const { type } = message;
-  if (type === "enrollment.sync") {
-    handleEnrollmentSyncMessage(
-      message as unknown as Parameters<typeof handleEnrollmentSyncMessage>[0]
-    );
-    return;
-  }
 
   if (type === "error") {
     connectionValue.textContent = String(message["message"] ?? "error");
@@ -1047,9 +835,8 @@ const bootstrap = async (): Promise<void> => {
   connectSocket();
   try {
     await loadEnrollmentList();
-  } catch (error) {
-    enrollmentStatus.textContent =
-      error instanceof Error ? error.message : "enrollment unavailable";
+  } catch {
+    // enrollment stats unavailable — non-fatal
   }
 };
 
@@ -1105,115 +892,6 @@ intervalValue.textContent = `${state.sampling.intervalMs} ms`;
 qualityValue.textContent = state.sampling.jpegQuality.toFixed(2);
 updateCameraFlipButton();
 window.requestAnimationFrame(renderLoop);
-
-enrollmentForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  const submission = collectEnrollmentSubmission();
-  if (submission === null) {
-    return;
-  }
-
-  if ("error" in submission) {
-    enrollmentStatus.textContent = submission.error;
-    return;
-  }
-
-  const isEditing = state.editingIdentityId !== null;
-  enrollmentStatus.textContent = isEditing ? "saving…" : "uploading…";
-  const request: RequestInit = {
-    body: isEditing
-      ? JSON.stringify(Object.fromEntries(submission.form.entries()))
-      : submission.form,
-    method: isEditing ? "PATCH" : "POST",
-  };
-  if (isEditing) {
-    request.headers = { "Content-Type": "application/json" };
-  }
-  const response = await fetch(
-    isEditing
-      ? `/api/enrollment/${state.editingIdentityId}`
-      : "/api/enrollment",
-    request
-  );
-  const payload = (await response.json()) as {
-    error?: string;
-    identities: typeof state.enrollmentIdentities;
-    reload?: { enrollment?: unknown; ok?: boolean };
-  };
-  if (!response.ok) {
-    enrollmentStatus.textContent = payload.error ?? "save failed";
-    return;
-  }
-
-  applyEnrollmentReload(payload);
-  if (isEditing) {
-    enrollmentStatus.textContent = payload.reload?.ok
-      ? "saved + synced"
-      : "saved; sync pending";
-  } else {
-    const failedDiagnostics = state.enrollmentDiagnostics.filter(
-      (diagnostic) => diagnostic.embeddingCount === 0
-    );
-    if (!payload.reload?.ok) {
-      enrollmentStatus.textContent = "uploaded; sync pending";
-    } else if (failedDiagnostics.length > 0) {
-      enrollmentStatus.textContent = "uploaded; no embedding extracted";
-    } else {
-      enrollmentStatus.textContent = "uploaded + synced";
-    }
-  }
-  setEnrollmentFormMode(null);
-});
-
-enrollmentList.addEventListener("click", async (event) => {
-  if (!(event.target instanceof HTMLButtonElement)) {
-    return;
-  }
-
-  if (event.target.classList.contains("identity-edit")) {
-    const identityId = event.target.dataset["id"];
-    if (identityId === undefined) {
-      return;
-    }
-    const identity = state.enrollmentIdentities.find(
-      (candidate) => candidate.id === identityId
-    );
-    if (identity !== undefined) {
-      setEnrollmentFormMode(identity);
-    }
-    return;
-  }
-
-  const identityId = event.target.dataset["id"];
-  if (identityId === undefined) {
-    return;
-  }
-
-  enrollmentStatus.textContent = "deleting…";
-  const response = await fetch(`/api/enrollment/${identityId}`, {
-    method: "DELETE",
-  });
-  const payload = (await response.json()) as {
-    error?: string;
-    identities: typeof state.enrollmentIdentities;
-    reload?: { enrollment?: unknown; ok?: boolean };
-  };
-  if (!response.ok) {
-    enrollmentStatus.textContent = payload.error ?? "delete failed";
-    return;
-  }
-
-  state.enrollmentIdentities = payload.identities;
-  applyEnrollmentSnapshot(payload.reload?.enrollment ?? null);
-  renderEnrollmentList();
-  if (state.editingIdentityId === identityId) {
-    setEnrollmentFormMode(null);
-  }
-  enrollmentStatus.textContent = payload.reload?.ok
-    ? "deleted + synced"
-    : "deleted; sync pending";
-});
 
 window.addEventListener("resize", () => camera.syncOverlaySize());
 

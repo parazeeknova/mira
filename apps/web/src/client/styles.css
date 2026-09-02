@@ -2,8 +2,8 @@
   color-scheme: dark;
   --bg: #000;
   --ink: #aaa;
-  --dim: #666;
-  --line: #333;
+  --dim: #555;
+  --line: #000;
 }
 
 * {
@@ -11,6 +11,7 @@
   margin: 0;
   padding: 0;
   border-radius: 0;
+  border: 0;
 }
 
 html,
@@ -20,7 +21,7 @@ body {
   color: var(--ink);
   font-family: "Cascadia Mono", monospace;
   font-size: 8pt;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
 body {
@@ -64,8 +65,8 @@ body {
   cursor: pointer;
   user-select: none;
   color: var(--dim);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
 }
 
 .menu-shell summary:hover {
@@ -82,10 +83,9 @@ body {
   right: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  width: 240px;
-  background: #0a0a0a;
-  border: 1px solid var(--line);
+  gap: 0;
+  width: 220px;
+  background: #000;
 }
 
 .menu-shell:not([open]) #options-panel {
@@ -93,20 +93,19 @@ body {
 }
 
 .card {
-  border-bottom: 1px solid var(--line);
-  padding: 4px;
+  padding: 2px;
 }
 
 .card dl {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 1px 8px;
+  gap: 0 8px;
 }
 
 .card dt {
   color: var(--dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
 }
 
 .card dd {
@@ -116,40 +115,77 @@ body {
   white-space: nowrap;
 }
 
+/* ── text-only inputs & buttons ──────────────────── */
 input,
 button {
   background: transparent;
-  border: 1px solid var(--line);
   color: var(--ink);
   font: inherit;
   font-size: 8pt;
-}
-
-input {
-  width: 100%;
-  padding: 0 2px;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
 }
 
 button {
   cursor: pointer;
-  text-transform: lowercase;
+  padding: 0;
+  color: var(--dim);
 }
 
 button:hover {
   color: #fff;
 }
 
-input[type="range"] {
-  accent-color: #999;
+input {
+  width: 100%;
   padding: 0;
 }
 
-/* ── results (from renderResultCard) ─────────────── */
+input::placeholder {
+  color: var(--dim);
+}
+
+/* thin line sliders */
+input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 8px;
+  background: transparent;
+  padding: 0;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--dim);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 2px;
+  height: 8px;
+  background: var(--ink);
+  margin-top: -3px;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 1px;
+  background: var(--dim);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 2px;
+  height: 8px;
+  border: 0;
+  border-radius: 0;
+  background: var(--ink);
+}
+
+/* ── results ─────────────────────────────────────── */
 .result-card {
   display: grid;
-  gap: 1px;
-  padding: 4px 0;
-  border-bottom: 1px solid var(--line);
+  gap: 0;
+  padding: 2px 0;
 }
 
 .result-card-header {
@@ -158,8 +194,8 @@ input[type="range"] {
 }
 
 .result-platform {
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
   color: var(--dim);
 }
 
@@ -193,10 +229,11 @@ input[type="range"] {
 #enrollment-list,
 #enrollment-diagnostics {
   display: grid;
-  gap: 1px;
+  gap: 0;
 }
 
-.identity-row {
+.identity-row,
+.diagnostic-row {
   display: flex;
   justify-content: space-between;
   gap: 4px;
@@ -204,17 +241,6 @@ input[type="range"] {
 
 .identity-actions {
   display: inline-flex;
-  gap: 4px;
-}
-
-.identity-edit,
-.identity-delete {
-  padding: 0 2px;
-}
-
-.diagnostic-row {
-  display: flex;
-  justify-content: space-between;
   gap: 4px;
 }
 
@@ -228,7 +254,8 @@ input[type="range"] {
   bottom: 4px;
   left: 4px;
   z-index: 10;
-  padding: 0 4px;
+  padding: 0;
+  color: var(--dim);
 }
 
 #pipeline-button:disabled {
