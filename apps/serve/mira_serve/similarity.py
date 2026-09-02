@@ -164,11 +164,27 @@ class ArcFaceSimilarity:
             download_results = await asyncio.gather(
                 *(self._download_candidate(c) for c in group_b), return_exceptions=True
             )
+            ok_downloads = 0
             for cand, res in zip(group_b, download_results, strict=True):
                 if isinstance(res, BaseException) or res is None:
+                    logger.info(
+                        "similarity: download FAILED: %s (%s)",
+                        cand.url,
+                        res.__class__.__name__
+                        if isinstance(res, BaseException)
+                        else "empty/html",
+                    )
                     continue
                 if isinstance(res, (bytes, bytearray)) and len(res) > 100:
                     b_pairs.append((cand, bytes(res)))
+                    ok_downloads += 1
+            logger.info(
+                "similarity: acquired images: %d/%d URL downloads ok, %d/%d facecheck in-memory",
+                ok_downloads,
+                len(group_b),
+                len(a_pairs),
+                len(group_a),
+            )
 
         all_pairs = a_pairs + b_pairs
         if not all_pairs:
@@ -210,7 +226,7 @@ class ArcFaceSimilarity:
                         continue
 
                 if not faces:
-                    logger.debug("similarity: no face in candidate %s", cand.url)
+                    logger.info("similarity: DISCARD (no face): %s", cand.url)
                     continue
 
                 # Select largest face
@@ -230,8 +246,8 @@ class ArcFaceSimilarity:
                 # Clamp to [-1, 1] (numerical)
                 cosine = max(-1.0, min(1.0, cosine))
                 if cosine < threshold:
-                    logger.debug(
-                        "similarity: below threshold %.3f < %.3f for %s",
+                    logger.info(
+                        "similarity: DISCARD (cos %.3f < %.3f): %s",
                         cosine,
                         threshold,
                         cand.url,
@@ -278,6 +294,13 @@ class ArcFaceSimilarity:
                     final_score=final,
                 )
                 ranked.append((final, cosine, new_sr))
+                logger.info(
+                    "similarity: SURVIVOR cos=%.3f final=%.3f (sources=%d): %s",
+                    cosine,
+                    final,
+                    multi_source,
+                    cand.url,
+                )
             except Exception as e:
                 logger.debug(
                     "similarity: candidate %s failed: %s: %s",

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any, cast
@@ -99,6 +100,7 @@ class ReverseImageSearch:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._client: httpx.AsyncClient | None = None
+        self._log = logging.getLogger(__name__)
         # Lazy imports avoid circular dependency (web_vision/facecheck import SearchResult)
         from .facecheck import FaceCheckSearch  # noqa: PLC0415
         from .web_vision import VisionWebSearch  # noqa: PLC0415
@@ -163,7 +165,26 @@ class ReverseImageSearch:
             facecheck_task,
             return_exceptions=True,
         )
-        return self._merge_four_way(vision_res, google_res, yandex_res, facecheck_res)
+        for name, res in (
+            ("vision", vision_res),
+            ("lens", google_res),
+            ("yandex", yandex_res),
+            ("facecheck", facecheck_res),
+        ):
+            if isinstance(res, BaseException):
+                self._log.warning(
+                    "[search] engine %s FAILED: %s: %s",
+                    name,
+                    res.__class__.__name__,
+                    res,
+                )
+            elif isinstance(res, list) and res:
+                self._log.info("[search] engine %s: %d results", name, len(res))
+            else:
+                self._log.info("[search] engine %s: 0 results (skipped or empty)", name)
+        merged = self._merge_four_way(vision_res, google_res, yandex_res, facecheck_res)
+        self._log.info("[search] merged: %d candidates after dedupe", len(merged))
+        return merged
 
     async def _serpapi_search(self, image_bytes: bytes) -> list[SearchResult]:
         if not self._settings.serpapi_key:

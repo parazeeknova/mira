@@ -6,6 +6,7 @@ import contextlib
 import http
 import logging
 import signal
+import time
 from collections.abc import Awaitable, Callable
 
 from websockets.asyncio.server import ServerConnection, serve
@@ -57,9 +58,13 @@ async def handle_connection(
         )
 
 
+logger = logging.getLogger("mira_serve.pipeline")
+
+
 async def _handle_pipeline_run(payload: dict[str, object], pipeline: Pipeline) -> str:
     session_id = payload.get("sessionId")
     session_str = session_id if isinstance(session_id, str) else ""
+    t0 = time.perf_counter()
 
     try:
         image_field = payload.get("image")
@@ -71,7 +76,21 @@ async def _handle_pipeline_run(payload: dict[str, object], pipeline: Pipeline) -
             raise ValueError("Missing image data")
 
         image_bytes = base64.b64decode(data_field)
+        logger.info(
+            "[ws] pipeline.run received: session=%s %d bytes",
+            session_str[:8] if session_str else "?",
+            len(image_bytes),
+        )
         result = await pipeline.run(image_bytes)
+        logger.info(
+            "[ws] pipeline.result sent: session=%s strategy=%s "
+            "cacheHit=%s results=%d (%.0fms)",
+            session_str[:8] if session_str else "?",
+            result.anchor_strategy,
+            result.cache_hit,
+            len(result.results),
+            (time.perf_counter() - t0) * 1000,
+        )
 
         return dumps(
             {
@@ -89,6 +108,11 @@ async def _handle_pipeline_run(payload: dict[str, object], pipeline: Pipeline) -
             }
         )
     except NoFaceFoundError as exc:
+        logger.warning(
+            "[ws] pipeline no-face: session=%s (%s)",
+            session_str[:8] if session_str else "?",
+            exc,
+        )
         return dumps(
             {
                 "type": "pipeline.result",
@@ -101,6 +125,13 @@ async def _handle_pipeline_run(payload: dict[str, object], pipeline: Pipeline) -
             }
         )
     except Exception as exc:
+        logger.error(
+            "[ws] pipeline ERROR: session=%s %s: %s",
+            session_str[:8] if session_str else "?",
+            exc.__class__.__name__,
+            exc,
+            exc_info=True,
+        )
         return dumps(
             {
                 "type": "pipeline.result",
@@ -143,6 +174,12 @@ def handle_process_request(
 async def main() -> None:
     install_runtime_compatibility_patches()
     settings = load_settings()
+    # INFO logs for the whole pipeline (stages, engines, timings).
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
     service = FaceRecognitionService(settings)
     pipeline = Pipeline(service, settings)
     websocket_logger = logging.getLogger("mira_serve.websockets")

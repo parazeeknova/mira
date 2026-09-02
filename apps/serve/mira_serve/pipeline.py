@@ -138,8 +138,19 @@ class Pipeline:
                 self._similarity = None  # type: ignore[assignment]
 
     async def run(self, image_bytes: bytes) -> PipelineResult:
+        t0 = time.perf_counter()
+        image_len = len(image_bytes)
+        logger.info("[pipeline] ▶ START: %d bytes input", image_len)
+
         # Stage 1: face detection & embedding
         face = await asyncio.to_thread(self._extract_face, image_bytes)
+        t1 = time.perf_counter()
+        logger.info(
+            "[pipeline] stage1 detect+embed: bbox=(%s) conf=%.3f (%.0fms)",
+            ", ".join(f"{v:.0f}" for v in face.bbox.values()),
+            face.confidence,
+            (t1 - t0) * 1000,
+        )
 
         # Stage 2: embedding cache lookup — <5ms brute-force cosine (in-memory matrix)
         if self._cache is not None:
@@ -147,10 +158,12 @@ class Pipeline:
                 cached = self._cache.lookup(face.embedding)
                 if cached is not None:
                     logger.info(
-                        "Pipeline cache HIT: %s (similarity=%.3f, engines=%s)",
+                        "[pipeline] stage2 cache HIT: %s (similarity=%.3f, engines=%s) — "
+                        "skipping stages 3-5 [total %.0fms]",
                         cached.top_url,
                         cached.similarity,
                         cached.engines_used,
+                        (time.perf_counter() - t0) * 1000,
                     )
                     return PipelineResult(
                         face=face,
@@ -162,9 +175,13 @@ class Pipeline:
                             face.embedding.tobytes()
                         ).hexdigest(),
                     )
+                logger.info(
+                    "[pipeline] stage2 cache MISS (best sim < %.2f) — proceeding to search",
+                    self._settings.cache_threshold,
+                )
             except Exception as e:
                 logger.warning(
-                    "Pipeline cache lookup failed, proceeding to search: %s: %s",
+                    "[pipeline] stage2 cache lookup failed, proceeding to search: %s: %s",
                     e.__class__.__name__,
                     e,
                     exc_info=True,
@@ -175,9 +192,22 @@ class Pipeline:
             candidates = await self._search.search(
                 face.cropped_jpeg, full_image_bytes=image_bytes
             )
+            t2 = time.perf_counter()
+            by_engine: dict[str, int] = {}
+            for c in candidates:
+                by_engine[c.engine] = by_engine.get(c.engine, 0) + 1
+            logger.info(
+                "[pipeline] stage3 search: %d candidates (%s) (%.1fs)",
+                len(candidates),
+                ", ".join(f"{k}={v}" for k, v in sorted(by_engine.items())) or "none",
+                t2 - t1,
+            )
         except Exception as e:
             logger.warning(
-                "Pipeline search failed: %s: %s", e.__class__.__name__, e, exc_info=True
+                "[pipeline] stage3 search failed: %s: %s",
+                e.__class__.__name__,
+                e,
+                exc_info=True,
             )
             candidates = []
 
@@ -185,12 +215,25 @@ class Pipeline:
         ranked: list[SearchResult] = []
         if candidates and self._similarity is not None:
             try:
+                t3 = time.perf_counter()
                 ranked = await self._similarity.rank_candidates(
                     face.embedding, candidates, self._service
                 )
+                logger.info(
+                    "[pipeline] stage4+5 re-rank: %d/%d survived (top sim=%.3f, final=%.3f) (%.1fs)",
+                    len(ranked),
+                    len(candidates),
+                    ranked[0].similarity
+                    if ranked and ranked[0].similarity is not None
+                    else 0.0,
+                    ranked[0].final_score
+                    if ranked and ranked[0].final_score is not None
+                    else 0.0,
+                    time.perf_counter() - t3,
+                )
             except Exception as e:
                 logger.warning(
-                    "Pipeline similarity re-rank failed, falling back to raw candidates: %s: %s",
+                    "[pipeline] stage4+5 re-rank failed, falling back to raw candidates: %s: %s",
                     e.__class__.__name__,
                     e,
                     exc_info=True,
@@ -212,6 +255,12 @@ class Pipeline:
 
         if results:
             engines = sorted({r.engine for r in results})
+            logger.info(
+                "[pipeline] stage5 rank result: %d results, engines=%s, top=%s",
+                len(results),
+                engines,
+                results[0].url,
+            )
             # Stage 5b: cache write (only for real URLs, not fallback)
             if self._cache is not None:
                 try:
@@ -243,14 +292,24 @@ class Pipeline:
                                 top.url,
                                 engines,  # type: ignore[attr-defined]
                             )
-                        logger.info("Pipeline cache WRITE: %s (sim=%.3f)", top.url, sim)
+                        logger.info(
+                            "[pipeline] stage5b cache WRITE: %s (sim=%.3f)",
+                            top.url,
+                            sim,
+                        )
                 except Exception as e:
                     logger.warning(
-                        "Pipeline cache write failed: %s: %s",
+                        "[pipeline] stage5b cache write failed: %s: %s",
                         e.__class__.__name__,
                         e,
                         exc_info=True,
                     )
+            logger.info(
+                "[pipeline] ■ DONE (search): %d results via %s [total %.1fs]",
+                len(results),
+                engines,
+                time.perf_counter() - t0,
+            )
             return PipelineResult(
                 face=face,
                 results=results,
@@ -262,6 +321,10 @@ class Pipeline:
 
         # Zero-survivor fallback: embedding hash
         fallback = _embedding_fallback(face.embedding)
+        logger.info(
+            "[pipeline] ■ DONE (embedding fallback): no matches survived [total %.1fs]",
+            time.perf_counter() - t0,
+        )
         # Do NOT cache fallback (would corrupt future lookups)
         return PipelineResult(
             face=face,

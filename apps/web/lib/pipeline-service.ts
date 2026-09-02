@@ -51,6 +51,21 @@ interface BridgeLike {
     },
     timeoutMs?: number
   ): Promise<PythonPipelineResultMessage>;
+  sendAdminMessage?(payload: {
+    files: Array<{ data: string; name: string }>;
+    id: string;
+    metadata: {
+      color: string;
+      email?: string;
+      githubUsername?: string;
+      id: string;
+      linkedinId?: string;
+      name: string;
+      phoneNumber?: string;
+      worksAt?: string;
+    };
+    type: "admin.upsert-identity";
+  }): Promise<{ changed: boolean; ok: boolean }>;
 }
 
 interface BlockchainLike {
@@ -65,6 +80,72 @@ interface BlockchainLike {
 
 const json = (body: PipelineResponse, status = 200): Response =>
   Response.json(body, { status });
+
+export const parseIdentityFromFinding = (
+  top: PipelineCandidateResult
+): {
+  color: string;
+  id: string;
+  linkedinId?: string;
+  name: string;
+} => {
+  let name = "";
+  let linkedinId: string | undefined;
+
+  if (top.title) {
+    const cleaned = top.title
+      .replace(/\|.*$/i, "")
+      .replace(/-.*$/i, "")
+      .replace(/\bon linkedin.*$/i, "")
+      .replace(/\bprofile\b/i, "")
+      .trim();
+    if (
+      cleaned.length > 1 &&
+      !cleaned.toLowerCase().includes("face embedding")
+    ) {
+      name = cleaned;
+    }
+  }
+
+  if (top.url.includes("linkedin.com/in/")) {
+    const match = top.url.match(/linkedin\.com\/in\/([a-zA-Z0-9_-]+)/);
+    if (match && match[1]) {
+      linkedinId = match[1];
+      if (!name) {
+        name = match[1]
+          .replace(/[-_]/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+    }
+  } else if (top.url.includes("linkedin.com/posts/")) {
+    const match = top.url.match(/linkedin\.com\/posts\/([a-zA-Z0-9_-]+?)_/);
+    if (match && match[1]) {
+      linkedinId = match[1];
+      if (!name) {
+        name = match[1]
+          .replace(/[-_]/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+    }
+  }
+
+  if (!name) {
+    name = "identity";
+  }
+
+  const id =
+    name
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]+/g, "-")
+      .replaceAll(/^-+|-+$/g, "") || "identity";
+
+  return {
+    color: "#3b82f6",
+    id,
+    ...(linkedinId ? { linkedinId } : {}),
+    name,
+  };
+};
 
 const parseMaxWidth = (): number => {
   const raw = Number(Bun.env["PIPELINE_MAX_WIDTH"]);
@@ -161,6 +242,8 @@ export const handlePipelineRequest = async (
   bridge: BridgeLike,
   blockchain: BlockchainLike
 ): Promise<Response> => {
+  const t0 = Date.now();
+  console.log("[pipeline] ▶ POST /api/pipeline");
   let imageBytes: ArrayBuffer;
   try {
     const form = await req.formData();
@@ -226,10 +309,14 @@ export const handlePipelineRequest = async (
       mimeType: "image/jpeg" as const,
       ...(await resizeImage(imageBytes)),
     };
-  } catch {
+  } catch (resizeError) {
     // Graceful degradation: sharp failed or timed out — forward the original
     // bytes with header-parsed dimensions. Python re-validates the image and
     // returns a clean 422 if it is genuinely undecodable.
+    console.warn(
+      "[pipeline] resize failed (sharp hang/error) — forwarding raw bytes:",
+      resizeError instanceof Error ? resizeError.message : resizeError
+    );
     image = { mimeType: "image/jpeg", ...rawImagePayload(imageBytes) };
   }
 
@@ -271,7 +358,14 @@ export const handlePipelineRequest = async (
     );
   }
 
+  console.log(
+    `[pipeline] python result: strategy=${result.anchorStrategy} cacheHit=${result.cacheHit} results=${result.results.length} engines=[${result.enginesUsed.join(",")}]`
+  );
+
   if (result.error !== undefined) {
+    console.warn(
+      `[pipeline] ■ 422 python error: ${result.error} (+${Date.now() - t0}ms)`
+    );
     return json(
       {
         anchorStrategy: result.anchorStrategy,
@@ -292,6 +386,30 @@ export const handlePipelineRequest = async (
 
   const top = result.results[0] ?? null;
   const inputFaceHash = result.inputFaceHash ?? null;
+
+  if (top && result.anchorStrategy !== "embedding") {
+    try {
+      const identityMeta = parseIdentityFromFinding(top);
+      if (typeof bridge.sendAdminMessage === "function") {
+        console.log(
+          `[pipeline] 👤 auto-enrolling found identity into live tracker: ${identityMeta.name} (${identityMeta.id})`
+        );
+        void bridge.sendAdminMessage({
+          files: [
+            {
+              data: image.data,
+              name: "scan_face.jpg",
+            },
+          ],
+          id: identityMeta.id,
+          metadata: identityMeta,
+          type: "admin.upsert-identity",
+        });
+      }
+    } catch (enrollError) {
+      console.warn("[pipeline] 👤 auto-enrollment failed:", enrollError);
+    }
+  }
 
   const response: PipelineResponse = {
     anchorStrategy: result.anchorStrategy,
@@ -326,9 +444,15 @@ export const handlePipelineRequest = async (
     url: top.url,
   });
 
+  console.log(
+    `[pipeline] ⛓️ anchoring: url=${top.url.slice(0, 60)} sim=${(top.similarity ?? 0).toFixed(3)} faceHash=${inputFaceHash.slice(0, 12)}…`
+  );
   try {
     const record = await blockchain.store(hashable);
     response.blockchain = record;
+    console.log(
+      `[pipeline] ⛓️ stored: tx=${record.txHash.slice(0, 14)}… block=${record.blockNumber}`
+    );
     const check = await blockchain.verifyResult(hashable, record.contentHash);
     response.verified = check.verified;
     if (!check.verified) {
@@ -339,6 +463,7 @@ export const handlePipelineRequest = async (
     // result was anchored before — treat it as previously verified instead of
     // an error, keeping repeat scans idempotent (no gas, no new tx).
     if (isAlreadyStoredError(error)) {
+      console.log("[pipeline] ⛓️ already stored — verifying existing record");
       const recomputedHash = await contentHashOf(hashable);
       try {
         const existing = await blockchain.verify(recomputedHash);
@@ -360,9 +485,16 @@ export const handlePipelineRequest = async (
       response.blockchainError = "Result was already anchored previously.";
       return json(response);
     }
+    console.warn(
+      `[pipeline] ⛓️ store FAILED:`,
+      error instanceof Error ? error.message : error
+    );
     response.blockchainError =
       error instanceof Error ? error.message : "Blockchain store failed.";
   }
 
+  console.log(
+    `[pipeline] ■ DONE: verified=${response.verified} results=${response.results.length} (+${Date.now() - t0}ms)`
+  );
   return json(response);
 };

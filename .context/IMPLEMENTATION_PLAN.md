@@ -714,15 +714,17 @@ Sleek floating HUD card on the video canvas next to the tracked face. Displays m
 ### Step 4.1 — `public/index.html`
 
 Add:
-- `#pipeline-btn` — fixed bottom-right button (`🔍 Run Pipeline`)
 - `#proof-modal` — modal showing Etherscan link, block explorer, raw SHA-256, full engine list
 
 ---
 
 ### Step 4.2 — Extend `public/client.js` Canvas Renderer
 
-**Click handler (`#pipeline-btn`):**
+**Auto-Trigger State Controller (`onFrameResult()`):**
+- Track `face.trackId` stability count (require >= 15 frames / ~1 sec)
+- Check `!scannedTrackIds.has(trackId)` and `!isPipelineBusy`
 - Capture current frame from canvas
+- Set HUD state to "🔍 Identifying..."
 - `POST /api/pipeline`
 - Save result into `state.pipelineResult`
 

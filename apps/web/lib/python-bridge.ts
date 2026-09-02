@@ -619,18 +619,17 @@ export class PythonBridge {
     identity: Omit<IdentityMetadataPayload, "syncStatus">
   ): Promise<void> {
     try {
-      if (!isEnrollmentStoreConfigured()) {
-        throw new Error("Enrollment storage is not configured.");
-      }
-
-      const existingIdentity = await getEnrollmentIdentity(identity.id);
-      if (existingIdentity !== undefined) {
-        this.setIdentitySyncStatus(identity.id, "ready");
-        return;
-      }
-
       const file = await this.cropEnrollmentImage(sessionId, frameId, bbox);
-      await upsertEnrollmentIdentityPayload(identity, [file]);
+
+      if (isEnrollmentStoreConfigured()) {
+        const existingIdentity = await getEnrollmentIdentity(identity.id);
+        if (existingIdentity !== undefined) {
+          this.setIdentitySyncStatus(identity.id, "ready");
+          return;
+        }
+        await upsertEnrollmentIdentityPayload(identity, [file]);
+      }
+
       const reload = await this.sendAdminMessage({
         files: [file],
         id: identity.id,

@@ -44,3 +44,11 @@ yarn-error.log*
 *.pem
 test-results
 playwright-report
+
+# Database & local data
+*.db
+*.db-wal
+*.db-shm
+data/
+apps/data/
+image2.jpeg

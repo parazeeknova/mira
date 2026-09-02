@@ -174,6 +174,9 @@ export class BlockchainClient {
     const contract = this.getContract();
     const contentHash = await contentHashOf(result);
     const bytes32 = `0x${contentHash}` as const;
+    console.log(
+      `[chain] store() tx submitting: hash=${contentHash.slice(0, 16)}… uri=${result.url.slice(0, 50)}`
+    );
 
     const storeFn = contract["store"] as (
       contentHash: string,
@@ -195,6 +198,9 @@ export class BlockchainClient {
       throw new Error(`store transaction reverted (tx ${tx.hash})`);
     }
 
+    console.log(
+      `[chain] store() confirmed: tx=${tx.hash.slice(0, 14)}… block=${receipt.blockNumber}`
+    );
     return {
       blockNumber: receipt.blockNumber,
       contentHash,

@@ -6,6 +6,7 @@ import contextlib
 import ctypes
 import io
 import shutil
+import site
 import subprocess
 import time
 from dataclasses import dataclass
@@ -564,32 +565,50 @@ def _aggregate_identity_score(scores: list[float]) -> float:
     return (best_score * 0.8) + (mean_score * 0.2)
 
 
-def _cuda_runtime_is_compatible() -> bool:
+def _check_nvidia_nodes() -> bool:
     required_device_nodes = ("/dev/nvidia0", "/dev/nvidiactl")
+    for device_node in required_device_nodes:
+        if not Path(device_node).exists():
+            _ensure_nvidia_device_nodes()
+            break
+    return all(Path(node).exists() for node in required_device_nodes)
+
+
+def _load_cuda_library(library: str, search_dirs: list[Path]) -> bool:
+    with contextlib.suppress(OSError):
+        ctypes.CDLL(library)
+        return True
+    for d in search_dirs:
+        candidate = d / library
+        if candidate.is_file():
+            with contextlib.suppress(OSError):
+                ctypes.CDLL(str(candidate), mode=ctypes.RTLD_GLOBAL)
+                return True
+    return False
+
+
+def _cuda_runtime_is_compatible() -> bool:
+    if not _check_nvidia_nodes():
+        return False
+
     required_libraries = (
         "libcublasLt.so.12",
         "libcublas.so.12",
         "libcudart.so.12",
         "libcufft.so.11",
+        "libcurand.so.10",
         "libcudnn.so.9",
     )
 
-    for device_node in required_device_nodes:
-        if not Path(device_node).exists():
-            _ensure_nvidia_device_nodes()
-            break
+    nvidia_dirs = [
+        sub / "lib"
+        for sp in site.getsitepackages()
+        if (Path(sp) / "nvidia").is_dir()
+        for sub in (Path(sp) / "nvidia").iterdir()
+        if (sub / "lib").is_dir()
+    ]
 
-    for device_node in required_device_nodes:
-        if not Path(device_node).exists():
-            return False
-
-    for library in required_libraries:
-        try:
-            ctypes.CDLL(library)
-        except OSError:
-            return False
-
-    return True
+    return all(_load_cuda_library(lib, nvidia_dirs) for lib in required_libraries)
 
 
 def _ensure_nvidia_device_nodes() -> None:
