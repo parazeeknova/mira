@@ -30,6 +30,7 @@ async def handle_connection(
     service: FaceRecognitionService,
     pipeline: Pipeline,
 ) -> None:
+    tasks: set[asyncio.Task[None]] = set()
     try:
         await websocket.send(dumps(service.ready_message()))
 
@@ -42,8 +43,15 @@ async def handle_connection(
                 continue
 
             if payload.get("type") == "pipeline.run":
-                response = await _handle_pipeline_run(payload, pipeline)
-                await websocket.send(response)
+                # Run the search as a background task so the single websocket
+                # loop keeps servicing frame.process messages (live tracking).
+                # The 15s reverse-image-search would otherwise stall the loop
+                # and freeze the stream until it returns.
+                task = asyncio.create_task(
+                    _run_pipeline_and_send(payload, pipeline, websocket)
+                )
+                tasks.add(task)
+                task.add_done_callback(tasks.discard)
             else:
                 response = await service.handle_raw_message(message)
                 await websocket.send(response)
@@ -54,6 +62,23 @@ async def handle_connection(
             "Mira serve websocket closed unexpectedly: "
             f"code={error.code} reason={error.reason!r}"
         )
+    finally:
+        if tasks:
+            for task in list(tasks):
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def _run_pipeline_and_send(
+    payload: dict[str, object],
+    pipeline: Pipeline,
+    websocket: ServerConnection,
+) -> None:
+    try:
+        response = await _handle_pipeline_run(payload, pipeline)
+        await websocket.send(response)
+    except Exception:
+        logger.exception("pipeline.run background task failed")
 
 
 logger = logging.getLogger("mira.pipeline")
