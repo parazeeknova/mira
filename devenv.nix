@@ -11,7 +11,7 @@ let
     version = "1.4.0";
     src = pkgs.fetchurl {
       url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-linux-x64.zip";
-      sha256 = "1b0cn8487w9y63dgcx9vjhij2yw2z448kl3xjdrzh9zjzsyv931y";
+      sha256 = "0lp45zljagwcv1l2jv7mi3a1j6hsrsr838m0mikvbj1sp1gzn0rd";
     };
   });
 in
