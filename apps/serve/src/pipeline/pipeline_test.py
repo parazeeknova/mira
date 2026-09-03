@@ -232,3 +232,127 @@ async def test_pipeline_run_search_success() -> None:
     assert len(result.results) == 1
     assert result.results[0].url == "https://twitter.com/test"
     assert result.engines_used == ["google_lens"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_run_emits_progress_stages() -> None:
+    from unittest.mock import AsyncMock
+
+    from search.search import SearchResult
+
+    settings = _make_settings()
+    fake_face = MagicMock()
+    fake_face.bbox = np.array([50, 50, 150, 150], dtype=np.float32)
+    fake_face.det_score = 0.99
+    fake_face.embedding = np.ones(512, dtype=np.float32)
+    fake_face.normed_embedding = np.ones(512, dtype=np.float32)
+
+    service = _make_dummy_service(faces=[fake_face])
+    pipeline = Pipeline(service, settings)
+    pipeline._cache = MagicMock()
+    pipeline._cache.lookup.return_value = None
+    pipeline._cache.write = MagicMock()
+    pipeline._similarity = None  # type: ignore[assignment]
+    pipeline._search.search = AsyncMock(
+        return_value=[
+            SearchResult(
+                url="https://twitter.com/test",
+                platform="twitter",
+                title="Test",
+                snippet="snip",
+                image_url=None,
+                fetched_at=123,
+                source_strategy="serpapi",
+                engine="google_lens",
+            )
+        ]
+    )
+
+    events: list[dict[str, object]] = []
+
+    async def collect(event: dict[str, object]) -> None:
+        events.append(event)
+
+    img_bytes = _make_image_bytes()
+    result = await pipeline.run(img_bytes, on_progress=collect)
+    assert result.anchor_strategy == "search"
+
+    stages = [(e["stage"], e["state"]) for e in events]
+    assert ("detect", "start") in stages
+    assert ("detect", "done") in stages
+    assert ("cache", "miss") in stages
+    assert ("search", "start") in stages
+    assert ("search", "done") in stages
+    assert ("done", "done") in stages
+    # detect/done carries the face confidence for the floating status card
+    detect_done = next(
+        e for e in events if e["stage"] == "detect" and e["state"] == "done"
+    )
+    assert detect_done["confidence"] == pytest.approx(0.99)
+
+
+@pytest.mark.asyncio
+async def test_pipeline_run_no_face_emits_detect_error() -> None:
+    settings = _make_settings()
+    service = _make_dummy_service(faces=[])
+    pipeline = Pipeline(service, settings)
+    pipeline._cache = None  # type: ignore[assignment]
+
+    events: list[dict[str, object]] = []
+
+    async def collect(event: dict[str, object]) -> None:
+        events.append(event)
+
+    with pytest.raises(NoFaceFoundError):
+        await pipeline.run(_make_image_bytes(), on_progress=collect)
+
+    assert ("detect", "start") in [(e["stage"], e["state"]) for e in events]
+    assert ("detect", "error") in [(e["stage"], e["state"]) for e in events]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_cache_hit_emits_done_cached() -> None:
+    from unittest.mock import AsyncMock
+
+    from search.search import SearchResult
+
+    settings = _make_settings()
+    fake_face = MagicMock()
+    fake_face.bbox = np.array([50, 50, 150, 150], dtype=np.float32)
+    fake_face.det_score = 0.9
+    fake_face.embedding = np.ones(512, dtype=np.float32)
+    fake_face.normed_embedding = np.ones(512, dtype=np.float32)
+
+    service = _make_dummy_service(faces=[fake_face])
+    pipeline = Pipeline(service, settings)
+    cached = MagicMock()
+    cached.top_url = "https://linkedin.com/in/test"
+    cached.similarity = 0.9
+    cached.engines_used = ["google_lens"]
+    cached.results = [
+        SearchResult(
+            url="https://linkedin.com/in/test",
+            platform="linkedin",
+            title="Test",
+            snippet="snip",
+            image_url=None,
+            fetched_at=123,
+            source_strategy="serpapi",
+            engine="google_lens",
+        )
+    ]
+    pipeline._cache = MagicMock()
+    pipeline._cache.lookup.return_value = cached
+    pipeline._search.search = AsyncMock(return_value=[])
+
+    events: list[dict[str, object]] = []
+
+    async def collect(event: dict[str, object]) -> None:
+        events.append(event)
+
+    result = await pipeline.run(_make_image_bytes(), on_progress=collect)
+    assert result.cache_hit is True
+    cache_hit = next(e for e in events if e["stage"] == "cache" and e["state"] == "hit")
+    assert cache_hit["results"] == 1
+    done = next(e for e in events if e["stage"] == "done")
+    assert done["cached"] is True

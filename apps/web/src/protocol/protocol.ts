@@ -184,6 +184,7 @@ export interface PythonPipelineRunMessage {
 }
 
 export interface PipelineCandidateResult {
+  base64?: string;
   engine: PipelineEngine;
   fetchedAt: number;
   finalScore: number | null;
@@ -214,6 +215,58 @@ export interface PythonPipelineResultMessage {
   results: PipelineCandidateResult[];
   sessionId: string;
   type: "pipeline.result";
+}
+
+export type PipelineProgressStage =
+  | "anchor"
+  | "cache"
+  | "detect"
+  | "done"
+  | "engine"
+  | "rank"
+  | "scan"
+  | "search";
+
+export type PipelineProgressState =
+  | "done"
+  | "error"
+  | "hit"
+  | "miss"
+  | "skip"
+  | "start";
+
+export interface PipelineProgressHit {
+  base64?: string;
+  engine: string;
+  imageUrl?: string;
+  platform: string;
+  title: string | null;
+  url: string;
+}
+
+/**
+ * Live stage update for one scan. Python emits detect/cache/engine/search/
+ * rank/done; the Bun server emits scan/anchor. `sessionId` is the scan id the
+ * browser subscribed to over SSE.
+ */
+export interface PythonPipelineProgressMessage {
+  block?: number;
+  cached?: boolean;
+  candidates?: number;
+  confidence?: number;
+  contentHash?: string;
+  count?: number;
+  detail?: string;
+  engine?: string;
+  engines?: string[] | Record<string, number>;
+  error?: string;
+  results?: PipelineProgressHit[];
+  sessionId: string;
+  stage: PipelineProgressStage;
+  state: PipelineProgressState;
+  strategy?: string;
+  tx?: string;
+  type: "pipeline.progress";
 }
 
 export interface ServerSessionReadyMessage {

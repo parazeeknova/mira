@@ -315,6 +315,70 @@ const server = Bun.serve({
       }
     }
 
+    if (url.pathname === "/api/pipeline/progress" && req.method === "GET") {
+      const scanId = url.searchParams.get("scanId") ?? "";
+      if (!/^[A-Za-z0-9-]{8,64}$/u.test(scanId)) {
+        return json({ error: "Query param 'scanId' is required." }, 400);
+      }
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      let unsubscribe: (() => void) | undefined;
+      const stream = new ReadableStream<string>({
+        cancel() {
+          if (heartbeat !== undefined) {
+            clearInterval(heartbeat);
+          }
+          unsubscribe?.();
+        },
+        start(controller) {
+          const push = (data: string): void => {
+            try {
+              controller.enqueue(data);
+            } catch {
+              // client went away; cancel() cleans up
+            }
+          };
+          unsubscribe = bridge.subscribePipelineProgress(scanId, (event) => {
+            push(`data: ${JSON.stringify(event)}\n\n`);
+            if (event.stage === "scan" && event.state === "done") {
+              // Terminal event — give the transport a beat to flush, then end.
+              setTimeout(() => {
+                try {
+                  controller.close();
+                } catch {
+                  // already closed
+                }
+              }, 50);
+            }
+          });
+          heartbeat = setInterval(() => {
+            push(": ping\n\n");
+          }, 15_000);
+          req.signal.addEventListener(
+            "abort",
+            () => {
+              if (heartbeat !== undefined) {
+                clearInterval(heartbeat);
+              }
+              unsubscribe?.();
+              try {
+                controller.close();
+              } catch {
+                // already closed
+              }
+            },
+            { once: true }
+          );
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+          "Content-Type": "text/event-stream",
+        },
+      });
+    }
+
     if (url.pathname === "/api/pipeline" && req.method === "POST") {
       try {
         return await handlePipelineRequest(req, bridge, blockchainClient);

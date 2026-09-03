@@ -6,6 +6,7 @@ import hashlib
 import io
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -15,6 +16,12 @@ from PIL import Image
 
 from config.config import Settings
 from search.search import ReverseImageSearch, SearchResult
+
+# Progress events stream stage updates (detect → cache → per-engine search →
+# rank → done) to whoever is watching a run, e.g. the web client floating
+# per-face status beside each tracked face. All events are plain JSON dicts
+# with at least {"stage": ..., "state": ...}; states are start/done/skip/error.
+ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 if TYPE_CHECKING:
     from insightface.app import Face
@@ -137,19 +144,39 @@ class Pipeline:
                 logger.warning("Pipeline: similarity init failed: %s", e)
                 self._similarity = None  # type: ignore[assignment]
 
-    async def run(self, image_bytes: bytes) -> PipelineResult:
+    async def run(
+        self,
+        image_bytes: bytes,
+        on_progress: ProgressCallback | None = None,
+    ) -> PipelineResult:
+        async def emit(event: dict[str, Any]) -> None:
+            if on_progress is not None:
+                await on_progress(event)
+
         t0 = time.perf_counter()
         image_len = len(image_bytes)
         logger.info("[pipeline] ▶ START: %d bytes input", image_len)
+        await emit({"stage": "detect", "state": "start"})
 
         # Stage 1: face detection & embedding
-        face = await asyncio.to_thread(self._extract_face, image_bytes)
+        try:
+            face = await asyncio.to_thread(self._extract_face, image_bytes)
+        except NoFaceFoundError:
+            await emit({"stage": "detect", "state": "error", "error": "no face"})
+            raise
         t1 = time.perf_counter()
         logger.info(
             "[pipeline] stage1 detect+embed: bbox=(%s) conf=%.3f (%.0fms)",
             ", ".join(f"{v:.0f}" for v in face.bbox.values()),
             face.confidence,
             (t1 - t0) * 1000,
+        )
+        await emit(
+            {
+                "stage": "detect",
+                "state": "done",
+                "confidence": round(face.confidence, 3),
+            }
         )
 
         # Stage 2: embedding cache lookup — <5ms brute-force cosine (in-memory matrix)
@@ -165,6 +192,24 @@ class Pipeline:
                         cached.engines_used,
                         (time.perf_counter() - t0) * 1000,
                     )
+                    await emit(
+                        {
+                            "stage": "cache",
+                            "state": "hit",
+                            "engines": list(cached.engines_used),
+                            "results": len(cached.results),
+                        }
+                    )
+                    await emit(
+                        {
+                            "stage": "done",
+                            "state": "done",
+                            "strategy": "search",
+                            "results": len(cached.results),
+                            "engines": list(cached.engines_used),
+                            "cached": True,
+                        }
+                    )
                     return PipelineResult(
                         face=face,
                         results=cached.results,
@@ -179,6 +224,7 @@ class Pipeline:
                     "[pipeline] stage2 cache MISS (best sim < %.2f) — proceeding to search",
                     self._settings.cache_threshold,
                 )
+                await emit({"stage": "cache", "state": "miss"})
             except Exception as e:
                 logger.warning(
                     "[pipeline] stage2 cache lookup failed, proceeding to search: %s: %s",
@@ -188,9 +234,12 @@ class Pipeline:
                 )
 
         # Stage 3: 4-engine parallel search
+        await emit({"stage": "search", "state": "start"})
         try:
             candidates = await self._search.search(
-                face.cropped_jpeg, full_image_bytes=image_bytes
+                face.cropped_jpeg,
+                full_image_bytes=image_bytes,
+                on_progress=emit,
             )
             t2 = time.perf_counter()
             by_engine: dict[str, int] = {}
@@ -201,6 +250,14 @@ class Pipeline:
                 len(candidates),
                 ", ".join(f"{k}={v}" for k, v in sorted(by_engine.items())) or "none",
                 t2 - t1,
+            )
+            await emit(
+                {
+                    "stage": "search",
+                    "state": "done",
+                    "candidates": len(candidates),
+                    "engines": dict(sorted(by_engine.items())),
+                }
             )
         except Exception as e:
             logger.warning(
@@ -214,6 +271,9 @@ class Pipeline:
         # Stage 4+5: ArcFace re-ranking (if similarity available and candidates non-empty)
         ranked: list[SearchResult] = []
         if candidates and self._similarity is not None:
+            await emit(
+                {"stage": "rank", "state": "start", "candidates": len(candidates)}
+            )
             try:
                 t3 = time.perf_counter()
                 ranked = await self._similarity.rank_candidates(
@@ -230,6 +290,14 @@ class Pipeline:
                     if ranked and ranked[0].final_score is not None
                     else 0.0,
                     time.perf_counter() - t3,
+                )
+                await emit(
+                    {
+                        "stage": "rank",
+                        "state": "done",
+                        "candidates": len(candidates),
+                        "results": len(ranked),
+                    }
                 )
             except Exception as e:
                 logger.warning(
@@ -310,6 +378,15 @@ class Pipeline:
                 engines,
                 time.perf_counter() - t0,
             )
+            await emit(
+                {
+                    "stage": "done",
+                    "state": "done",
+                    "strategy": "search",
+                    "results": len(results),
+                    "engines": engines,
+                }
+            )
             return PipelineResult(
                 face=face,
                 results=results,
@@ -326,6 +403,9 @@ class Pipeline:
             time.perf_counter() - t0,
         )
         # Do NOT cache fallback (would corrupt future lookups)
+        await emit(
+            {"stage": "done", "state": "done", "strategy": "embedding", "results": 1}
+        )
         return PipelineResult(
             face=face,
             results=fallback,

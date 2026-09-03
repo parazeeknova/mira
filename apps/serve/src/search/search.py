@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -11,6 +13,33 @@ from urllib.parse import urlparse
 import httpx
 
 from config.config import Settings
+
+# Progress events mirror the pipeline's contract: plain JSON dicts with at
+# least {"stage": ..., "state": ...}. Engine ids are stable wire ids the web
+# client maps to display names (vision / lens / yandex / facecheck).
+ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
+
+_ENGINE_IDS = ("vision", "lens", "yandex", "facecheck")
+
+
+def _slim_results(results: list[SearchResult], limit: int = 3) -> list[dict[str, Any]]:
+    slim: list[dict[str, Any]] = []
+    for item in results[:limit]:
+        entry: dict[str, Any] = {
+            "url": item.url,
+            "platform": item.platform,
+            "title": item.title,
+            "engine": item.engine,
+        }
+        # Previews for the floating posts card: thumbnail URL when the
+        # engine provides one, face-crop data URI for FaceCheck.
+        if item.image_url:
+            entry["imageUrl"] = item.image_url
+        if item.base64:
+            entry["base64"] = item.base64
+        slim.append(entry)
+    return slim
+
 
 _PLATFORM_SCORES: dict[str, int] = {
     "twitter": 5,
@@ -124,13 +153,57 @@ class ReverseImageSearch:
         return self._client
 
     async def search(
-        self, image_bytes: bytes, full_image_bytes: bytes | None = None
+        self,
+        image_bytes: bytes,
+        full_image_bytes: bytes | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> list[SearchResult]:
+        async def emit(event: dict[str, Any]) -> None:
+            if on_progress is not None:
+                await on_progress(event)
+
+        async def traced(
+            engine: str, coro: Awaitable[list[SearchResult]]
+        ) -> list[SearchResult]:
+            await emit({"stage": "engine", "state": "start", "engine": engine})
+            try:
+                results = await coro
+            except BaseException as exc:
+                with contextlib.suppress(BaseException):
+                    await emit(
+                        {
+                            "stage": "engine",
+                            "state": "error",
+                            "engine": engine,
+                            "error": f"{exc.__class__.__name__}",
+                        }
+                    )
+                raise
+            result_list = list(results)
+            await emit(
+                {
+                    "stage": "engine",
+                    "state": "done",
+                    "engine": engine,
+                    "count": len(result_list),
+                    "results": _slim_results(result_list),
+                }
+            )
+            return result_list
+
+        async def skipped(engine: str) -> list[SearchResult]:
+            await emit({"stage": "engine", "state": "skip", "engine": engine})
+            return []
+
         # 4-engine parallel fanout per ARCHITECTURE_AND_FLOW.md Stage 3:
         #   Vision (raw bytes) | SerpAPI Lens (hosted URL) | SerpAPI Yandex (hosted URL) | FaceCheck (upload→poll)
         # Graceful degradation: any missing key → engine returns [] immediately.
         vision_input = full_image_bytes or image_bytes
-        vision_task = asyncio.create_task(self._vision.search(vision_input))
+        vision_task = asyncio.create_task(
+            traced("vision", self._vision.search(vision_input))
+            if self._settings.google_vision_enabled
+            else skipped("vision")
+        )
 
         serpapi_key = self._settings.serpapi_key
         if serpapi_key:
@@ -140,23 +213,35 @@ class ReverseImageSearch:
                 hosted_url = None
             if hosted_url:
                 google_task = asyncio.create_task(
-                    self._serpapi_request_with_url("google_lens", hosted_url)
+                    traced(
+                        "lens",
+                        self._serpapi_request_with_url("google_lens", hosted_url),
+                    )
                 )
                 yandex_task = asyncio.create_task(
-                    self._serpapi_request_with_url("yandex_images", hosted_url)
+                    traced(
+                        "yandex",
+                        self._serpapi_request_with_url("yandex_images", hosted_url),
+                    )
                 )
             else:
-                google_task = asyncio.create_task(self._serpapi_google(image_bytes))
-                yandex_task = asyncio.create_task(self._serpapi_yandex(image_bytes))
+                google_task = asyncio.create_task(
+                    traced("lens", self._serpapi_google(image_bytes))
+                )
+                yandex_task = asyncio.create_task(
+                    traced("yandex", self._serpapi_yandex(image_bytes))
+                )
         else:
-            google_task = asyncio.create_task(asyncio.sleep(0, result=[]))  # type: ignore[arg-type]
-            yandex_task = asyncio.create_task(asyncio.sleep(0, result=[]))  # type: ignore[arg-type]
+            google_task = asyncio.create_task(skipped("lens"))
+            yandex_task = asyncio.create_task(skipped("yandex"))
 
         # FaceCheck (engine 4) — independent, no hosting required, base64 in response
         if self._settings.facecheck_api_token:
-            facecheck_task = asyncio.create_task(self._facecheck.search(image_bytes))
+            facecheck_task = asyncio.create_task(
+                traced("facecheck", self._facecheck.search(image_bytes))
+            )
         else:
-            facecheck_task = asyncio.create_task(asyncio.sleep(0, result=[]))  # type: ignore[arg-type]
+            facecheck_task = asyncio.create_task(skipped("facecheck"))
 
         vision_res, google_res, yandex_res, facecheck_res = await asyncio.gather(
             vision_task,

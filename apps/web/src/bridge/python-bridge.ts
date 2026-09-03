@@ -17,6 +17,7 @@ import type {
   PythonAutoEnrollmentEvent,
   PythonFrameProcessMessage,
   PythonFrameResultMessage,
+  PythonPipelineProgressMessage,
   PythonPipelineResultMessage,
   PythonPipelineRunMessage,
   PythonServiceReadyMessage,
@@ -54,6 +55,13 @@ interface PendingPipelineRequest {
   sent: boolean;
   timeoutId: ReturnType<typeof setTimeout>;
 }
+
+export type PipelineProgressListener = (
+  event: PythonPipelineProgressMessage
+) => void;
+
+const MAX_PROGRESS_HISTORY = 100;
+const MAX_TRACKED_SCANS = 50;
 
 interface SessionState {
   inFlightFrameId: number | null;
@@ -131,6 +139,14 @@ export class PythonBridge {
   private readonly pendingUnknownTracks = new Map<
     string,
     PendingUnknownTrack
+  >();
+  private readonly progressHistory = new Map<
+    string,
+    PythonPipelineProgressMessage[]
+  >();
+  private readonly progressListeners = new Map<
+    string,
+    Set<PipelineProgressListener>
   >();
   private readonly pythonUrl: string;
   private readonly sessions = new Map<string, SessionState>();
@@ -293,6 +309,67 @@ export class PythonBridge {
     return promise;
   }
 
+  /**
+   * Live stage updates for one scan (`pipeline.progress` from Python, plus
+   * `scan`/`anchor` stages pushed by the Bun pipeline handler). Replays
+   * buffered history to late subscribers (SSE connects after POST starts).
+   * Returns an unsubscribe function.
+   */
+  subscribePipelineProgress(
+    scanId: string,
+    listener: PipelineProgressListener
+  ): () => void {
+    let listeners = this.progressListeners.get(scanId);
+    if (listeners === undefined) {
+      listeners = new Set();
+      this.progressListeners.set(scanId, listeners);
+    }
+    listeners.add(listener);
+    for (const event of this.progressHistory.get(scanId) ?? []) {
+      listener(event);
+    }
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) {
+        this.progressListeners.delete(scanId);
+      }
+    };
+  }
+
+  getPipelineProgress(scanId: string): PythonPipelineProgressMessage[] {
+    return this.progressHistory.get(scanId) ?? [];
+  }
+
+  pushPipelineProgress(
+    scanId: string,
+    event: Omit<PythonPipelineProgressMessage, "sessionId" | "type">
+  ): void {
+    this.emitPipelineProgress({
+      ...event,
+      sessionId: scanId,
+      type: "pipeline.progress",
+    });
+  }
+
+  private emitPipelineProgress(event: PythonPipelineProgressMessage): void {
+    const history = this.progressHistory.get(event.sessionId) ?? [];
+    history.push(event);
+    while (history.length > MAX_PROGRESS_HISTORY) {
+      history.shift();
+    }
+    this.progressHistory.set(event.sessionId, history);
+    while (this.progressHistory.size > MAX_TRACKED_SCANS) {
+      const oldest = this.progressHistory.keys().next();
+      if (oldest.done === true) {
+        break;
+      }
+      this.progressHistory.delete(oldest.value);
+    }
+    for (const listener of this.progressListeners.get(event.sessionId) ?? []) {
+      listener(event);
+    }
+  }
+
   private flushPipelineRequest(sessionId: string): void {
     const request = this.pendingPipelineRequests.get(sessionId);
     if (
@@ -425,8 +502,14 @@ export class PythonBridge {
     const payload = JSON.parse(raw) as
       | PythonAdminResultMessage
       | PythonFrameResultMessage
+      | PythonPipelineProgressMessage
       | PythonPipelineResultMessage
       | PythonServiceReadyMessage;
+
+    if (payload.type === "pipeline.progress") {
+      this.emitPipelineProgress(payload);
+      return;
+    }
 
     if (payload.type === "service.ready") {
       this.setStatus({

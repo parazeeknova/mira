@@ -1,6 +1,8 @@
 // oxlint-disable consistent-function-scoping, avoid-new, no-promise-executor-return
 import { describe, expect, test, mock } from "bun:test";
 
+import { PythonBridge } from "./python-bridge";
+
 describe("normalizePythonWebSocketUrl", () => {
   const normalizePythonWebSocketUrl = (url: string): string => {
     if (url.startsWith("ws://") || url.startsWith("wss://")) {
@@ -422,5 +424,46 @@ describe("WebSocket readyState checks", () => {
 
   test("CLOSED state value", () => {
     expect(WebSocket.CLOSED).toBe(3);
+  });
+});
+
+describe("PythonBridge pipeline progress bus", () => {
+  const bridge = new PythonBridge("ws://127.0.0.1:9");
+
+  test("push notifies subscribers and replays history to late joiners", () => {
+    const scanId = "test-scan-1234";
+    const first: string[] = [];
+    const unsub = bridge.subscribePipelineProgress(scanId, (event) => {
+      first.push(`${event.stage}:${event.state}`);
+    });
+    bridge.pushPipelineProgress(scanId, { stage: "detect", state: "start" });
+    bridge.pushPipelineProgress(scanId, {
+      confidence: 0.9,
+      stage: "detect",
+      state: "done",
+    });
+    expect(first).toEqual(["detect:start", "detect:done"]);
+
+    const late: string[] = [];
+    bridge.subscribePipelineProgress(scanId, (event) => {
+      late.push(`${event.stage}:${event.state}`);
+    });
+    expect(late).toEqual(["detect:start", "detect:done"]);
+
+    unsub();
+    expect(bridge.getPipelineProgress(scanId)).toHaveLength(2);
+  });
+
+  test("unsubscribed listeners stop receiving events", () => {
+    const scanId = "test-scan-5678";
+    const seen: string[] = [];
+    const unsub = bridge.subscribePipelineProgress(scanId, (event) => {
+      seen.push(event.stage);
+    });
+    unsub();
+    bridge.pushPipelineProgress(scanId, { stage: "search", state: "start" });
+    expect(seen).toEqual([]);
+    // history still buffered for SSE replay
+    expect(bridge.getPipelineProgress(scanId)).toHaveLength(1);
   });
 });

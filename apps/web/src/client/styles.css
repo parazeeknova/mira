@@ -264,3 +264,162 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* face info floats beside the face (canvas overlay) */
+
+/* ── per-track floating logs (beside each face) ── */
+#track-logs {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.track-stack {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  gap: 6px;
+  width: 228px;
+  max-height: 60dvh;
+  overflow: hidden;
+  pointer-events: auto;
+  will-change: transform;
+}
+
+.track-log,
+.track-posts-card,
+.track-chain-card {
+  overflow: hidden;
+  background: rgba(8, 10, 14, 0.78);
+  padding: 4px 6px;
+}
+
+.track-log-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  color: #fff;
+}
+
+.track-log-stage {
+  color: var(--dim);
+}
+
+.track-log-stage[data-stage="scanning"],
+.track-log-stage[data-stage="searching"],
+.track-log-stage[data-stage="anchoring"] {
+  color: #fff;
+}
+
+.track-log-lines {
+  display: grid;
+  gap: 1px;
+  margin-top: 2px;
+}
+
+.track-log-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.track-log-line .k {
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+.track-log-line .v {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.track-post {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  min-width: 0;
+}
+
+.track-post-thumb {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  object-fit: cover;
+  background: #111;
+}
+
+.track-post-body {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  align-content: start;
+  min-width: 0;
+}
+
+.track-post-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.track-post-top a {
+  overflow: hidden;
+  color: var(--ink);
+  text-decoration: none;
+  text-overflow: ellipsis;
+}
+
+.track-post-top a:hover {
+  color: #fff;
+}
+
+.track-post-top .sim {
+  flex-shrink: 0;
+  color: var(--dim);
+}
+
+.track-post-snippet {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--dim);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.track-chain-card {
+  color: var(--dim);
+}
+
+.track-chain-card[data-kind="verified"] {
+  color: #fff;
+}
+
+.track-chain-rows {
+  display: grid;
+  gap: 1px;
+  margin-top: 2px;
+}
+
+.track-chain-rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.track-chain-rows dt {
+  flex-shrink: 0;
+  color: var(--dim);
+}
+
+.track-chain-rows dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

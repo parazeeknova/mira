@@ -75,7 +75,26 @@ async def _run_pipeline_and_send(
     websocket: ServerConnection,
 ) -> None:
     try:
-        response = await _handle_pipeline_run(payload, pipeline)
+        session_id = payload.get("sessionId")
+        session_str = session_id if isinstance(session_id, str) else ""
+
+        async def emit_progress(event: dict[str, object]) -> None:
+            try:
+                await websocket.send(
+                    dumps(
+                        {
+                            "type": "pipeline.progress",
+                            "sessionId": session_str,
+                            **event,
+                        }
+                    )
+                )
+            except Exception:
+                logger.debug("pipeline.progress send failed (client gone?)")
+
+        response = await _handle_pipeline_run(
+            payload, pipeline, on_progress=emit_progress
+        )
         await websocket.send(response)
     except Exception:
         logger.exception("pipeline.run background task failed")
@@ -84,7 +103,11 @@ async def _run_pipeline_and_send(
 logger = logging.getLogger("mira.pipeline")
 
 
-async def _handle_pipeline_run(payload: dict[str, object], pipeline: Pipeline) -> str:
+async def _handle_pipeline_run(
+    payload: dict[str, object],
+    pipeline: Pipeline,
+    on_progress: Callable[[dict[str, object]], Awaitable[None]] | None = None,
+) -> str:
     session_id = payload.get("sessionId")
     session_str = session_id if isinstance(session_id, str) else ""
     t0 = time.perf_counter()
@@ -104,7 +127,7 @@ async def _handle_pipeline_run(payload: dict[str, object], pipeline: Pipeline) -
             session_str[:8] if session_str else "?",
             len(image_bytes),
         )
-        result = await pipeline.run(image_bytes)
+        result = await pipeline.run(image_bytes, on_progress=on_progress)
         logger.info(
             "[ws] pipeline.result sent: session=%s strategy=%s "
             "cacheHit=%s results=%d (%.0fms)",

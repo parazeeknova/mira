@@ -8,6 +8,7 @@ import {
 } from "../bridge/python-bridge";
 import type {
   PipelineCandidateResult,
+  PythonPipelineProgressMessage,
   PythonPipelineResultMessage,
 } from "../protocol/protocol";
 
@@ -40,6 +41,10 @@ export class PipelineRequestError extends Error {
 }
 
 interface BridgeLike {
+  pushPipelineProgress?: (
+    scanId: string,
+    event: Omit<PythonPipelineProgressMessage, "sessionId" | "type">
+  ) => void;
   runPipeline: (
     sessionId: string,
     image: {
@@ -251,6 +256,7 @@ export const handlePipelineRequest = async (
   const t0 = Date.now();
   console.log("[pipeline] ▶ POST /api/pipeline");
   let imageBytes: ArrayBuffer;
+  let scanId: string = crypto.randomUUID();
   try {
     const form = await req.formData();
     const file = form.get("image");
@@ -265,6 +271,13 @@ export const handlePipelineRequest = async (
         `Image exceeds the ${MAX_UPLOAD_BYTES / 1024 / 1024}MB limit.`,
         400
       );
+    }
+    const rawScanId = form.get("scanId");
+    if (
+      typeof rawScanId === "string" &&
+      /^[A-Za-z0-9-]{8,64}$/u.test(rawScanId)
+    ) {
+      scanId = rawScanId;
     }
     imageBytes = await file.arrayBuffer();
   } catch (error) {
@@ -326,181 +339,239 @@ export const handlePipelineRequest = async (
     image = { mimeType: "image/jpeg", ...rawImagePayload(imageBytes) };
   }
 
-  const sessionId = crypto.randomUUID();
+  const pushProgress = (
+    event: Omit<PythonPipelineProgressMessage, "sessionId" | "type">
+  ): void => {
+    bridge.pushPipelineProgress?.(scanId, event);
+  };
 
-  let result: PythonPipelineResultMessage;
-  try {
-    result = await bridge.runPipeline(sessionId, image, PIPELINE_TIMEOUT_MS);
-  } catch (error) {
-    const toErrorResponse = (message: string, status: number): Response =>
-      json(
+  // `scanId` doubles as the Python pipeline session so `pipeline.progress`
+  // events echo with the same id the browser subscribed to over SSE.
+  // scan/done always fires (finally) so the client can close its stream.
+  const runScan = async (): Promise<Response> => {
+    const sessionId = scanId;
+
+    let result: PythonPipelineResultMessage;
+    try {
+      result = await bridge.runPipeline(sessionId, image, PIPELINE_TIMEOUT_MS);
+    } catch (error) {
+      const toErrorResponse = (message: string, status: number): Response =>
+        json(
+          {
+            anchorStrategy: "none",
+            blockchain: null,
+            blockchainError: null,
+            cacheHit: false,
+            duplicate: false,
+            enginesUsed: [],
+            error: message,
+            face: null,
+            inputFaceHash: null,
+            results: [],
+            verified: false,
+          },
+          status
+        );
+      if (error instanceof PythonDisconnectedError) {
+        return toErrorResponse("Python service unavailable.", 503);
+      }
+      if (error instanceof PipelineBusyError) {
+        return toErrorResponse("A pipeline run is already in progress.", 409);
+      }
+      if (error instanceof PipelineTimeoutError) {
+        return toErrorResponse("Pipeline timed out before completion.", 504);
+      }
+      return toErrorResponse(
+        error instanceof Error ? error.message : "Pipeline run failed.",
+        500
+      );
+    }
+
+    console.log(
+      `[pipeline] python result: strategy=${result.anchorStrategy} cacheHit=${result.cacheHit} results=${result.results.length} engines=[${result.enginesUsed.join(",")}]`
+    );
+
+    if (result.error !== undefined) {
+      console.warn(
+        `[pipeline] ■ 422 python error: ${result.error} (+${Date.now() - t0}ms)`
+      );
+      return json(
         {
-          anchorStrategy: "none",
+          anchorStrategy: result.anchorStrategy,
           blockchain: null,
           blockchainError: null,
-          cacheHit: false,
+          cacheHit: result.cacheHit,
           duplicate: false,
-          enginesUsed: [],
-          error: message,
-          face: null,
-          inputFaceHash: null,
+          enginesUsed: result.enginesUsed,
+          error: result.error,
+          face: result.face ?? null,
+          inputFaceHash: result.inputFaceHash ?? null,
           results: [],
           verified: false,
         },
-        status
+        422
       );
-    if (error instanceof PythonDisconnectedError) {
-      return toErrorResponse("Python service unavailable.", 503);
     }
-    if (error instanceof PipelineBusyError) {
-      return toErrorResponse("A pipeline run is already in progress.", 409);
-    }
-    if (error instanceof PipelineTimeoutError) {
-      return toErrorResponse("Pipeline timed out before completion.", 504);
-    }
-    return toErrorResponse(
-      error instanceof Error ? error.message : "Pipeline run failed.",
-      500
-    );
-  }
 
-  console.log(
-    `[pipeline] python result: strategy=${result.anchorStrategy} cacheHit=${result.cacheHit} results=${result.results.length} engines=[${result.enginesUsed.join(",")}]`
-  );
+    const top = result.results[0] ?? null;
+    const inputFaceHash = result.inputFaceHash ?? null;
 
-  if (result.error !== undefined) {
-    console.warn(
-      `[pipeline] ■ 422 python error: ${result.error} (+${Date.now() - t0}ms)`
-    );
-    return json(
-      {
-        anchorStrategy: result.anchorStrategy,
-        blockchain: null,
-        blockchainError: null,
-        cacheHit: result.cacheHit,
-        duplicate: false,
-        enginesUsed: result.enginesUsed,
-        error: result.error,
-        face: result.face ?? null,
-        inputFaceHash: result.inputFaceHash ?? null,
-        results: [],
-        verified: false,
-      },
-      422
-    );
-  }
-
-  const top = result.results[0] ?? null;
-  const inputFaceHash = result.inputFaceHash ?? null;
-
-  if (top && result.anchorStrategy !== "embedding") {
-    try {
-      const identityMeta = parseIdentityFromFinding(top);
-      if (typeof bridge.sendAdminMessage === "function") {
-        console.log(
-          `[pipeline] 👤 auto-enrolling found identity into live tracker: ${identityMeta.name} (${identityMeta.id})`
-        );
-        void bridge.sendAdminMessage({
-          files: [
-            {
-              data: image.data,
-              name: "scan_face.jpg",
-            },
-          ],
-          id: identityMeta.id,
-          metadata: identityMeta,
-          type: "admin.upsert-identity",
-        });
-      }
-    } catch (enrollError) {
-      console.warn("[pipeline] 👤 auto-enrollment failed:", enrollError);
-    }
-  }
-
-  const response: PipelineResponse = {
-    anchorStrategy: result.anchorStrategy,
-    blockchain: null,
-    blockchainError: null,
-    cacheHit: result.cacheHit,
-    duplicate: false,
-    enginesUsed: result.enginesUsed,
-    error: null,
-    face: result.face ?? null,
-    inputFaceHash,
-    results: result.results,
-    verified: false,
-  };
-
-  // Blockchain anchoring is independently degradable: failures never fail a
-  // scan that produced results — they surface as blockchainError instead.
-  if (!blockchain.isConfigured()) {
-    response.blockchainError = "Blockchain client is not configured.";
-    return json(response);
-  }
-  if (!top || !inputFaceHash) {
-    response.blockchainError = "No anchorable result was produced.";
-    return json(response);
-  }
-
-  const hashable = buildHashableResult({
-    engines: result.enginesUsed,
-    inputFaceHash,
-    similarity: top.similarity ?? 0,
-    timestamp: Date.now(),
-    url: top.url,
-  });
-
-  console.log(
-    `[pipeline] ⛓️ anchoring: url=${top.url.slice(0, 60)} sim=${(top.similarity ?? 0).toFixed(3)} faceHash=${inputFaceHash.slice(0, 12)}…`
-  );
-  try {
-    const record = await blockchain.store(hashable);
-    response.blockchain = record;
-    console.log(
-      `[pipeline] ⛓️ stored: tx=${record.txHash.slice(0, 14)}… block=${record.blockNumber}`
-    );
-    const check = await blockchain.verifyResult(hashable, record.contentHash);
-    response.verified = check.verified;
-    if (!check.verified) {
-      response.blockchainError = "On-chain verification failed.";
-    }
-  } catch (error) {
-    // The contract enforces one record per hash. A duplicate means this exact
-    // result was anchored before — treat it as previously verified instead of
-    // an error, keeping repeat scans idempotent (no gas, no new tx).
-    if (isAlreadyStoredError(error)) {
-      console.log("[pipeline] ⛓️ already stored — verifying existing record");
-      const recomputedHash = await contentHashOf(hashable);
+    if (top && result.anchorStrategy !== "embedding") {
       try {
-        const existing = await blockchain.verify(recomputedHash);
-        if (existing.exists) {
-          response.duplicate = true;
-          response.verified = true;
-          response.blockchain = {
-            blockNumber: 0,
-            contentHash: recomputedHash,
-            explorerUrl: "",
-            storedAt: 0,
-            txHash: "",
-          };
-          return json(response);
+        const identityMeta = parseIdentityFromFinding(top);
+        if (typeof bridge.sendAdminMessage === "function") {
+          console.log(
+            `[pipeline] 👤 auto-enrolling found identity into live tracker: ${identityMeta.name} (${identityMeta.id})`
+          );
+          void bridge.sendAdminMessage({
+            files: [
+              {
+                data: image.data,
+                name: "scan_face.jpg",
+              },
+            ],
+            id: identityMeta.id,
+            metadata: identityMeta,
+            type: "admin.upsert-identity",
+          });
         }
-      } catch {
-        // Fall through to generic degradation below.
+      } catch (enrollError) {
+        console.warn("[pipeline] 👤 auto-enrollment failed:", enrollError);
       }
-      response.blockchainError = "Result was already anchored previously.";
+    }
+
+    const response: PipelineResponse = {
+      anchorStrategy: result.anchorStrategy,
+      blockchain: null,
+      blockchainError: null,
+      cacheHit: result.cacheHit,
+      duplicate: false,
+      enginesUsed: result.enginesUsed,
+      error: null,
+      face: result.face ?? null,
+      inputFaceHash,
+      results: result.results,
+      verified: false,
+    };
+
+    // Blockchain anchoring is independently degradable: failures never fail a
+    // scan that produced results — they surface as blockchainError instead.
+    if (!blockchain.isConfigured()) {
+      pushProgress({
+        detail: "Blockchain client is not configured.",
+        stage: "anchor",
+        state: "skip",
+      });
+      response.blockchainError = "Blockchain client is not configured.";
       return json(response);
     }
-    console.warn(
-      `[pipeline] ⛓️ store FAILED:`,
-      error instanceof Error ? error.message : error
-    );
-    response.blockchainError =
-      error instanceof Error ? error.message : "Blockchain store failed.";
-  }
+    if (!top || !inputFaceHash) {
+      pushProgress({
+        detail: "No anchorable result was produced.",
+        stage: "anchor",
+        state: "skip",
+      });
+      response.blockchainError = "No anchorable result was produced.";
+      return json(response);
+    }
 
-  console.log(
-    `[pipeline] ■ DONE: verified=${response.verified} results=${response.results.length} (+${Date.now() - t0}ms)`
-  );
-  return json(response);
+    const hashable = buildHashableResult({
+      engines: result.enginesUsed,
+      inputFaceHash,
+      similarity: top.similarity ?? 0,
+      timestamp: Date.now(),
+      url: top.url,
+    });
+
+    console.log(
+      `[pipeline] ⛓️ anchoring: url=${top.url.slice(0, 60)} sim=${(top.similarity ?? 0).toFixed(3)} faceHash=${inputFaceHash.slice(0, 12)}…`
+    );
+    pushProgress({ stage: "anchor", state: "start" });
+    try {
+      const record = await blockchain.store(hashable);
+      response.blockchain = record;
+      console.log(
+        `[pipeline] ⛓️ stored: tx=${record.txHash.slice(0, 14)}… block=${record.blockNumber}`
+      );
+      pushProgress({
+        block: record.blockNumber,
+        contentHash: record.contentHash,
+        stage: "anchor",
+        state: "done",
+        tx: record.txHash,
+      });
+      const check = await blockchain.verifyResult(hashable, record.contentHash);
+      response.verified = check.verified;
+      if (check.verified) {
+        pushProgress({ detail: "verified", stage: "anchor", state: "done" });
+      } else {
+        pushProgress({
+          detail: "On-chain verification failed.",
+          stage: "anchor",
+          state: "error",
+        });
+        response.blockchainError = "On-chain verification failed.";
+      }
+    } catch (error) {
+      // The contract enforces one record per hash. A duplicate means this exact
+      // result was anchored before — treat it as previously verified instead of
+      // an error, keeping repeat scans idempotent (no gas, no new tx).
+      if (isAlreadyStoredError(error)) {
+        console.log("[pipeline] ⛓️ already stored — verifying existing record");
+        const recomputedHash = await contentHashOf(hashable);
+        try {
+          const existing = await blockchain.verify(recomputedHash);
+          if (existing.exists) {
+            pushProgress({
+              detail: "already anchored · verified",
+              stage: "anchor",
+              state: "done",
+            });
+            response.duplicate = true;
+            response.verified = true;
+            response.blockchain = {
+              blockNumber: 0,
+              contentHash: recomputedHash,
+              explorerUrl: "",
+              storedAt: 0,
+              txHash: "",
+            };
+            return json(response);
+          }
+        } catch {
+          // Fall through to generic degradation below.
+        }
+        pushProgress({
+          detail: "Result was already anchored previously.",
+          stage: "anchor",
+          state: "error",
+        });
+        response.blockchainError = "Result was already anchored previously.";
+        return json(response);
+      }
+      console.warn(
+        `[pipeline] ⛓️ store FAILED:`,
+        error instanceof Error ? error.message : error
+      );
+      pushProgress({
+        detail:
+          error instanceof Error ? error.message : "Blockchain store failed.",
+        stage: "anchor",
+        state: "error",
+      });
+      response.blockchainError =
+        error instanceof Error ? error.message : "Blockchain store failed.";
+    }
+
+    console.log(
+      `[pipeline] ■ DONE: verified=${response.verified} results=${response.results.length} (+${Date.now() - t0}ms)`
+    );
+    return json(response);
+  };
+
+  try {
+    return await runScan();
+  } finally {
+    pushProgress({ stage: "scan", state: "done" });
+  }
 };

@@ -179,3 +179,42 @@ def test_search_result_to_protocol_dict_camelcase() -> None:
     assert d["engine"] == "google_lens"
     assert "image_url" not in d
     assert "fetched_at" not in d
+
+
+@pytest.mark.asyncio
+async def test_search_emits_per_engine_progress() -> None:
+    from unittest.mock import AsyncMock
+
+    settings = _make_settings(serpapi_key=None)
+    search = ReverseImageSearch(settings)
+    # Isolate vision from the network; lens/yandex/facecheck have no keys.
+    search._vision.search = AsyncMock(
+        return_value=[
+            _result("https://linkedin.com/in/a", "linkedin", engine="google-vision")
+        ]
+    )
+
+    events: list[dict[str, object]] = []
+
+    async def collect(event: dict[str, object]) -> None:
+        events.append(event)
+
+    results = await search.search(b"fake-image-bytes", on_progress=collect)
+    assert len(results) == 1
+
+    by_engine = {(e["engine"], e["state"]) for e in events if "engine" in e}
+    assert ("vision", "start") in by_engine
+    assert ("vision", "done") in by_engine
+    assert ("lens", "skip") in by_engine
+    assert ("yandex", "skip") in by_engine
+    assert ("facecheck", "skip") in by_engine
+
+    vision_done = next(
+        e for e in events if e.get("engine") == "vision" and e["state"] == "done"
+    )
+    assert vision_done["count"] == 1
+    slim = vision_done["results"]
+    assert isinstance(slim, list)
+    first = slim[0]
+    assert isinstance(first, dict)
+    assert first["url"] == "https://linkedin.com/in/a"

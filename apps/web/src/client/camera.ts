@@ -141,6 +141,123 @@ export const getTrackBox = (track: Track, now: number): BBox => {
   );
 };
 
+export interface FloatRect {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * Middle-truncate a long hash for narrow cards: keeps the prefix (chain
+ * selector) and suffix (checksum-y tail) with an ellipsis between.
+ */
+export const shortMiddle = (value: string, head = 9, tail = 5): string =>
+  value.length > head + tail + 1
+    ? `${value.slice(0, head)}…${value.slice(-tail)}`
+    : value;
+
+export interface FloatSize {
+  height: number;
+  width: number;
+}
+
+/**
+ * Screen rect of the identity detail card drawn beside a face box.
+ * Mirrors the placement math in `drawOverlay` so HTML overlays can avoid it.
+ * Returns null when the track has no detail rows to render.
+ */
+export const detailCardRect = (
+  box: FloatRect,
+  layout: Track["layout"],
+  stageWidth: number
+): FloatRect | null => {
+  if (layout.cardHeight === 0 || layout.cardWidth === 0) {
+    return null;
+  }
+  const preferredX = box.x + box.width + 12;
+  const x =
+    preferredX + layout.cardWidth <= stageWidth - 8
+      ? preferredX
+      : Math.max(8, box.x - layout.cardWidth - 12);
+  return {
+    height: layout.cardHeight,
+    width: layout.cardWidth,
+    x,
+    y: Math.max(8, box.y),
+  };
+};
+
+const rectsOverlap = (a: FloatRect, b: FloatRect): boolean =>
+  a.x < b.x + b.width &&
+  b.x < a.x + a.width &&
+  a.y < b.y + b.height &&
+  b.y < a.y + a.height;
+
+/**
+ * Places a floating card (scan log, tooltip) near a face box without
+ * covering the box itself: tries right, right-below the detail card, left,
+ * below, above — then falls back to clamping inside the stage.
+ */
+export const placeFloatCard = (
+  box: FloatRect,
+  card: FloatSize,
+  stage: FloatSize,
+  avoid: FloatRect | null = null,
+  gap = 10,
+  pad = 8
+): FloatRect => {
+  const candidates = [
+    { x: box.x + box.width + gap, y: box.y },
+    ...(avoid === null
+      ? []
+      : [{ x: box.x + box.width + gap, y: avoid.y + avoid.height + gap }]),
+    { x: box.x - card.width - gap, y: box.y },
+    { x: box.x, y: box.y + box.height + gap },
+    { x: box.x, y: box.y - card.height - gap },
+  ];
+  const fits = (point: { x: number; y: number }): boolean =>
+    point.x >= pad &&
+    point.y >= pad &&
+    point.x + card.width <= stage.width - pad &&
+    point.y + card.height <= stage.height - pad;
+  const clear = (point: { x: number; y: number }): boolean => {
+    const rect: FloatRect = {
+      height: card.height,
+      width: card.width,
+      x: point.x,
+      y: point.y,
+    };
+    return (
+      !rectsOverlap(rect, box) && (avoid === null || !rectsOverlap(rect, avoid))
+    );
+  };
+  for (const point of candidates) {
+    if (fits(point) && clear(point)) {
+      return { height: card.height, width: card.width, x: point.x, y: point.y };
+    }
+  }
+  for (const point of candidates) {
+    if (fits(point)) {
+      return { height: card.height, width: card.width, x: point.x, y: point.y };
+    }
+  }
+  const [fallback] = candidates;
+  const fallbackPoint = fallback ?? { x: pad, y: pad };
+  return {
+    height: card.height,
+    width: card.width,
+    x: Math.min(
+      Math.max(fallbackPoint.x, pad),
+      Math.max(pad, stage.width - card.width - pad)
+    ),
+    y: Math.min(
+      Math.max(fallbackPoint.y, pad),
+      Math.max(pad, stage.height - card.height - pad)
+    ),
+  };
+};
+
 interface CameraController {
   captureFrame: (sampling: {
     jpegQuality: number;
@@ -294,12 +411,15 @@ export const createCameraController = (
 
       if (track.detailRows.length > 0) {
         overlayCtx.font = '12px "Cascadia Mono", monospace';
-        const preferredX = x + width + 12;
-        const cardX =
-          preferredX + layout.cardWidth <= overlayCanvas.width - 8
-            ? preferredX
-            : Math.max(8, x - layout.cardWidth - 12);
-        const cardY = Math.max(8, y);
+        const detail = detailCardRect(
+          { height, width, x, y },
+          layout,
+          overlayCanvas.width
+        );
+        if (detail === null) {
+          continue;
+        }
+        const { x: cardX, y: cardY } = detail;
 
         overlayCtx.fillStyle = "rgba(8, 10, 14, 0.62)";
         overlayCtx.fillRect(cardX, cardY, layout.cardWidth, layout.cardHeight);

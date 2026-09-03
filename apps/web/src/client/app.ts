@@ -1,9 +1,16 @@
+import type {
+  PipelineProgressHit,
+  PythonPipelineProgressMessage,
+} from "../protocol/protocol";
 import {
   cloneBox,
   createCameraController,
+  detailCardRect,
   getTrackBox,
   makeTrackKey,
+  placeFloatCard,
   scaleBox,
+  shortMiddle,
   subtractBox,
 } from "./camera";
 import type { BBox, Track, TrackDetailRow } from "./camera";
@@ -26,7 +33,9 @@ interface PipelineResultPayload {
   face: { bbox: Record<string, number>; confidence: number } | null;
   inputFaceHash: string | null;
   results: {
+    base64?: string;
     engine: string;
+    imageUrl?: string | null;
     multiSourceCount: number;
     platform: string;
     similarity?: number | null;
@@ -111,6 +120,55 @@ const intervalInput = requiredNode<HTMLInputElement>("#interval-input");
 const intervalValue = requiredNode<HTMLElement>("#interval-value");
 const qualityInput = requiredNode<HTMLInputElement>("#quality-input");
 const qualityValue = requiredNode<HTMLElement>("#quality-value");
+const trackLogs = requiredNode<HTMLElement>("#track-logs");
+
+type TrackStage =
+  | "anchoring"
+  | "done"
+  | "error"
+  | "idle"
+  | "scanning"
+  | "searching";
+
+interface TrackPostHit {
+  base64?: string | undefined;
+  engine: string;
+  imageUrl?: string | null | undefined;
+  platform: string;
+  similarity?: number | null | undefined;
+  snippet?: string | null | undefined;
+  title: string | null;
+  url: string;
+}
+
+interface TrackChainState {
+  block: number | null;
+  contentHash: string | null;
+  kind: "unverified" | "verified";
+  note: string | null;
+  phase: "anchoring" | "done" | "failed" | "idle" | "skipped";
+  tx: string | null;
+}
+
+interface TrackScan {
+  chain: TrackChainState;
+  log: string[];
+  posts: TrackPostHit[];
+  result: PipelineResultPayload | null;
+  sawProgress: boolean;
+  stage: TrackStage;
+  startedAt: number;
+  version: number;
+}
+
+const idleChain = (): TrackChainState => ({
+  block: null,
+  contentHash: null,
+  kind: "unverified",
+  note: null,
+  phase: "idle",
+  tx: null,
+});
 
 const camera = createCameraController(cameraFeed, overlayCanvas, captureCanvas);
 
@@ -120,9 +178,13 @@ const state = {
   lastCompletedFrameId: 0,
   lastResultFrameId: -1,
   pipeline: {
+    activeScanKey: null as string | null,
     autoScans: 0,
     busy: false,
+    queue: [] as string[],
     result: null as PipelineResultPayload | null,
+    scanStreams: new Map<string, EventSource>(),
+    scanSubs: new Map<string, string>(),
   },
   renderTracks: new Map<string, Track>(),
   sampling: {
@@ -133,6 +195,7 @@ const state = {
   sessionId: crypto.randomUUID(),
   socket: null as WebSocket | null,
   sourceSize: { height: 0, width: 0 },
+  trackScans: new Map<string, TrackScan>(),
 };
 
 const updateCameraFlipButton = (): void => {
@@ -378,6 +441,525 @@ const autoScanLabel = (): string => {
   return `rescan (${state.pipeline.autoScans})`;
 };
 
+const escapeHtml = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+
+const shortHash = (value: string, head = 10): string =>
+  value.length > head ? `${value.slice(0, head)}…` : value;
+
+const trackLabelFor = (key: string): string => {
+  const track = state.renderTracks.get(key);
+  if (track === undefined) {
+    return key;
+  }
+  if (track.trackId !== null) {
+    return `${track.headerLabel} #${track.trackId}`;
+  }
+  return track.headerLabel;
+};
+
+const pushTrackLog = (key: string, stage: TrackStage, line: string): void => {
+  const existing = state.trackScans.get(key);
+  if (existing === undefined) {
+    state.trackScans.set(key, {
+      chain: idleChain(),
+      log: [line],
+      posts: [],
+      result: null,
+      sawProgress: false,
+      stage,
+      startedAt: Date.now(),
+      version: 1,
+    });
+    return;
+  }
+  existing.log.push(line);
+  existing.stage = stage;
+  existing.version += 1;
+};
+
+const updateChain = (key: string, patch: Partial<TrackChainState>): void => {
+  const scan = state.trackScans.get(key);
+  if (scan === undefined) {
+    return;
+  }
+  Object.assign(scan.chain, patch);
+  scan.version += 1;
+};
+
+const addPostHits = (key: string, hits: PipelineProgressHit[]): void => {
+  const scan = state.trackScans.get(key);
+  if (scan === undefined) {
+    return;
+  }
+  const known = new Set(scan.posts.map((post) => post.url));
+  for (const hit of hits) {
+    if (!known.has(hit.url)) {
+      known.add(hit.url);
+      scan.posts.push({
+        base64: hit.base64,
+        engine: hit.engine,
+        imageUrl: hit.imageUrl ?? null,
+        platform: hit.platform,
+        similarity: null,
+        snippet: null,
+        title: hit.title,
+        url: hit.url,
+      });
+    }
+  }
+  scan.version += 1;
+};
+
+const beginTrackScan = (key: string): void => {
+  state.trackScans.set(key, {
+    chain: idleChain(),
+    log: ["capture face", "crop > embed"],
+    posts: [],
+    result: null,
+    sawProgress: false,
+    stage: "scanning",
+    startedAt: Date.now(),
+    version: (state.trackScans.get(key)?.version ?? 0) + 1,
+  });
+  // Synthetic fallback when the SSE progress stream never arrives
+  // (old server, blocked stream): only fires if no real events landed.
+  const fallback = (stage: TrackStage, line: string): void => {
+    const scan = state.trackScans.get(key);
+    if (
+      state.pipeline.busy &&
+      scan !== undefined &&
+      scan.sawProgress !== true
+    ) {
+      pushTrackLog(key, stage, line);
+    }
+  };
+  window.setTimeout(() => {
+    fallback("searching", "search vision / lens / yandex");
+  }, 900);
+  window.setTimeout(() => {
+    fallback("anchoring", "rank posts > anchor on-chain");
+  }, 2600);
+};
+
+const matchWord = (count: number): string =>
+  count === 1 ? "1 match" : `${count} matches`;
+
+const applyEngineProgress = (
+  key: string,
+  event: PythonPipelineProgressMessage
+): void => {
+  const engine = formatEngineName(event.engine ?? "?");
+  if (event.state === "start") {
+    pushTrackLog(key, "searching", `searching ${engine}…`);
+  } else if (event.state === "done") {
+    pushTrackLog(key, "searching", `${engine}: ${matchWord(event.count ?? 0)}`);
+    addPostHits(key, event.results ?? []);
+  } else if (event.state === "skip") {
+    pushTrackLog(key, "searching", `${engine}: skipped`);
+  } else {
+    pushTrackLog(key, "searching", `${engine}: failed`);
+  }
+};
+
+const applyAnchorProgress = (
+  key: string,
+  event: PythonPipelineProgressMessage
+): void => {
+  if (event.state === "start") {
+    pushTrackLog(key, "anchoring", "anchoring on-chain…");
+    updateChain(key, { phase: "anchoring" });
+  } else if (event.state === "done" && event.tx) {
+    pushTrackLog(key, "anchoring", `tx ${shortHash(event.tx)}`);
+    updateChain(key, {
+      block: event.block ?? null,
+      contentHash: event.contentHash ?? null,
+      kind: "unverified",
+      note: null,
+      phase: "done",
+      tx: event.tx,
+    });
+  } else if (event.state === "done") {
+    const detail = event.detail ?? "anchored";
+    pushTrackLog(key, "anchoring", detail);
+    updateChain(key, {
+      kind: detail.includes("verified") ? "verified" : "unverified",
+      note: detail,
+      phase: "done",
+    });
+  } else if (event.state === "skip") {
+    const detail = event.detail ?? "skipped";
+    pushTrackLog(key, "anchoring", "chain skipped");
+    updateChain(key, { note: detail, phase: "skipped" });
+  } else {
+    const detail = event.detail ?? "failed";
+    pushTrackLog(key, "error", "chain failed");
+    updateChain(key, { note: detail, phase: "failed" });
+  }
+};
+
+const applyStageProgress = (
+  key: string,
+  event: PythonPipelineProgressMessage
+): void => {
+  switch (event.stage) {
+    case "detect": {
+      if (event.state === "start") {
+        pushTrackLog(key, "scanning", "detecting face…");
+      } else if (event.state === "done") {
+        const confidence = Math.round((event.confidence ?? 0) * 100);
+        pushTrackLog(key, "scanning", `face ${confidence}%`);
+      } else {
+        pushTrackLog(key, "error", "no face found");
+      }
+      break;
+    }
+    case "cache": {
+      if (event.state === "hit") {
+        pushTrackLog(
+          key,
+          "done",
+          `cache: instant hit (${event.results ?? 0} posts)`
+        );
+      } else {
+        pushTrackLog(key, "scanning", "cache miss · searching");
+      }
+      break;
+    }
+    case "search": {
+      if (event.state === "done") {
+        pushTrackLog(
+          key,
+          "searching",
+          `search: ${event.candidates ?? 0} candidates`
+        );
+      }
+      break;
+    }
+    case "rank": {
+      if (event.state === "start") {
+        pushTrackLog(key, "searching", `ranking ${event.candidates ?? 0}…`);
+      } else if (event.state === "done") {
+        pushTrackLog(key, "searching", `rank: ${event.results ?? 0} kept`);
+      }
+      break;
+    }
+    case "done": {
+      pushTrackLog(
+        key,
+        "done",
+        `done · ${event.results ?? 0} posts · ${event.strategy ?? ""}`.trim()
+      );
+      break;
+    }
+    default: {
+      break;
+    }
+  }
+};
+
+const applyKeyProgress = (
+  key: string,
+  event: PythonPipelineProgressMessage
+): void => {
+  const scan = state.trackScans.get(key);
+  if (scan === undefined) {
+    return;
+  }
+  scan.sawProgress = true;
+  if (event.stage === "engine") {
+    applyEngineProgress(key, event);
+  } else if (event.stage === "anchor") {
+    applyAnchorProgress(key, event);
+  } else {
+    applyStageProgress(key, event);
+  }
+};
+
+const closeScanStream = (scanId: string): void => {
+  state.pipeline.scanStreams.get(scanId)?.close();
+  state.pipeline.scanStreams.delete(scanId);
+  state.pipeline.scanSubs.delete(scanId);
+};
+
+const applyScanProgress = (event: PythonPipelineProgressMessage): void => {
+  if (event.stage === "scan") {
+    // Terminal event: the server is done pushing for this scan, so its
+    // stream can close now. Delivered in order, nothing after it is lost.
+    if (event.state === "done") {
+      closeScanStream(event.sessionId);
+    }
+    return;
+  }
+  const key = state.pipeline.scanSubs.get(event.sessionId);
+  if (key === undefined) {
+    return;
+  }
+  if (state.renderTracks.has(key)) {
+    applyKeyProgress(key, event);
+  }
+};
+
+const doneLinesFor = (
+  scan: TrackScan | undefined,
+  payload: PipelineResultPayload
+): string[] => {
+  const engineLine = payload.cacheHit
+    ? "cache: instant hit"
+    : `engines: ${payload.enginesUsed.map(formatEngineName).join(" / ") || "—"}`;
+  return [
+    ...(scan?.log ?? []),
+    engineLine,
+    `posts: ${payload.results.length} (${payload.anchorStrategy})`,
+  ];
+};
+
+const chainStateFor = (payload: PipelineResultPayload): TrackChainState => {
+  const chain = idleChain();
+  if (payload.blockchain !== null) {
+    chain.phase = "done";
+    // Empty tx hash = duplicate of an earlier anchor, verified by lookup.
+    chain.tx = payload.blockchain.txHash;
+    chain.block =
+      payload.blockchain.blockNumber === 0
+        ? null
+        : payload.blockchain.blockNumber;
+    chain.contentHash = payload.blockchain.contentHash;
+    chain.kind = payload.verified ? "verified" : "unverified";
+  } else if (payload.blockchainError !== null) {
+    chain.phase = "skipped";
+    chain.note = payload.blockchainError;
+  }
+  return chain;
+};
+
+const finishOneTrackScan = (
+  key: string,
+  payload: PipelineResultPayload
+): void => {
+  if (!state.renderTracks.has(key)) {
+    state.trackScans.delete(key);
+    return;
+  }
+  const scan = state.trackScans.get(key);
+  const version = (scan?.version ?? 0) + 1;
+  const startedAt = scan?.startedAt ?? Date.now();
+  const sawProgress = scan?.sawProgress ?? false;
+  const posts: TrackPostHit[] = payload.results.map((post) => ({
+    base64: post.base64,
+    engine: post.engine,
+    imageUrl: post.imageUrl,
+    platform: post.platform,
+    similarity: post.similarity ?? null,
+    snippet: post.snippet,
+    title: post.title,
+    url: post.url,
+  }));
+  const hasChain =
+    payload.blockchain !== null || payload.blockchainError !== null;
+  const chain = hasChain
+    ? chainStateFor(payload)
+    : (scan?.chain ?? idleChain());
+  if (payload.error !== null) {
+    state.trackScans.set(key, {
+      chain,
+      log: [...(scan?.log ?? []), `error: ${payload.error}`],
+      posts,
+      result: payload,
+      sawProgress,
+      stage: "error",
+      startedAt,
+      version,
+    });
+    return;
+  }
+  state.trackScans.set(key, {
+    chain,
+    // With a live feed the run was already narrated line by line; without
+    // one, fall back to the end-of-run summary.
+    log: sawProgress ? (scan?.log ?? []) : doneLinesFor(scan, payload),
+    posts,
+    result: payload,
+    sawProgress,
+    stage: "done",
+    startedAt,
+    version,
+  });
+};
+
+const renderTrackStatusCard = (key: string, scan: TrackScan): string => {
+  const label = escapeHtml(trackLabelFor(key));
+  const lines = scan.log
+    .slice(-4)
+    .map(
+      (line) =>
+        `<div class="track-log-line"><span class="k">›</span><span class="v">${escapeHtml(line)}</span></div>`
+    )
+    .join("");
+  return `<section class="track-log"><div class="track-log-head"><span>${label}</span><span class="track-log-stage" data-stage="${scan.stage}">${scan.stage}</span></div>
+    <div class="track-log-lines">${lines}</div></section>`;
+};
+
+const postThumbSrc = (post: TrackPostHit): string | null => {
+  if (post.base64 !== undefined && post.base64 !== "") {
+    return post.base64.startsWith("data:")
+      ? post.base64
+      : `data:image/jpeg;base64,${post.base64}`;
+  }
+  return post.imageUrl ?? null;
+};
+
+const renderTrackPostsCard = (scan: TrackScan): string => {
+  if (scan.posts.length === 0) {
+    return "";
+  }
+  const posts = scan.posts
+    .slice(0, 4)
+    .map((post) => {
+      const platform = escapeHtml(
+        post.platform === "none" ? "web" : post.platform
+      );
+      const title = escapeHtml(
+        post.title ?? post.url.replace(/^https?:\/\//u, "").slice(0, 28)
+      );
+      const sim =
+        typeof post.similarity === "number"
+          ? `~${post.similarity.toFixed(2)}`
+          : formatEngineName(post.engine);
+      const url = escapeHtml(post.url);
+      const thumb = postThumbSrc(post);
+      const thumbHtml =
+        thumb === null
+          ? ""
+          : `<img class="track-post-thumb" src="${escapeHtml(thumb)}" alt="" loading="lazy" onerror="this.remove()" />`;
+      const snippetHtml =
+        post.snippet === null || post.snippet === undefined
+          ? ""
+          : `<div class="track-post-snippet">${escapeHtml(post.snippet)}</div>`;
+      return `<div class="track-post">${thumbHtml}<div class="track-post-body"><div class="track-post-top"><a href="${url}" target="_blank" rel="noopener">${platform} · ${title}</a><span class="sim">${escapeHtml(sim)}</span></div>${snippetHtml}</div></div>`;
+    })
+    .join("");
+  return `<section class="track-posts-card"><div class="track-log-head"><span>posts · ${scan.posts.length}</span></div>${posts}</section>`;
+};
+
+const chainStatusWord = (chain: TrackChainState): string => {
+  switch (chain.phase) {
+    case "anchoring": {
+      return "anchoring…";
+    }
+    case "done": {
+      if (chain.tx === "") {
+        return "prev record";
+      }
+      return chain.kind === "verified" ? "verified" : "unverified";
+    }
+    case "failed": {
+      return "failed";
+    }
+    case "skipped": {
+      return "skipped";
+    }
+    default: {
+      return "";
+    }
+  }
+};
+
+const renderTrackChainCard = (scan: TrackScan): string => {
+  const { chain } = scan;
+  if (chain.phase === "idle") {
+    return "";
+  }
+  const rows: [string, string][] = [];
+  if (chain.tx !== null) {
+    rows.push(["tx", chain.tx === "" ? "prev record" : shortMiddle(chain.tx)]);
+  }
+  if (chain.block !== null && chain.block !== 0) {
+    rows.push(["block", `#${chain.block}`]);
+  }
+  if (chain.contentHash !== null && chain.contentHash !== "") {
+    rows.push(["hash", shortMiddle(chain.contentHash, 8, 4)]);
+  }
+  if (chain.note !== null && chain.tx === null) {
+    rows.push(["note", chain.note]);
+  }
+  const rowsHtml = rows
+    .map(
+      ([label, value]) =>
+        `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`
+    )
+    .join("");
+  return `<section class="track-chain-card" data-kind="${chain.kind}"><div class="track-log-head"><span>chain</span><span>${chainStatusWord(chain)}</span></div><dl class="track-chain-rows">${rowsHtml}</dl></section>`;
+};
+
+const renderTrackStack = (key: string, scan: TrackScan): string =>
+  renderTrackStatusCard(key, scan) +
+  renderTrackPostsCard(scan) +
+  renderTrackChainCard(scan);
+
+const trackLogEls = new Map<string, HTMLElement>();
+
+const syncTrackLogs = (now: number): void => {
+  const stageWidth = trackLogs.clientWidth || window.innerWidth;
+  const stageHeight = trackLogs.clientHeight || window.innerHeight;
+  for (const [key, el] of trackLogEls.entries()) {
+    if (!state.renderTracks.has(key)) {
+      el.remove();
+      trackLogEls.delete(key);
+      state.trackScans.delete(key);
+    }
+  }
+  for (const [key, track] of state.renderTracks.entries()) {
+    const scan = state.trackScans.get(key);
+    if (scan === undefined) {
+      continue;
+    }
+    if (
+      track.sourceSize.width === 0 ||
+      track.sourceSize.height === 0 ||
+      overlayCanvas.width === 0 ||
+      overlayCanvas.height === 0
+    ) {
+      continue;
+    }
+    let el = trackLogEls.get(key);
+    if (el === undefined) {
+      el = document.createElement("div");
+      el.className = "track-stack";
+      trackLogs.append(el);
+      trackLogEls.set(key, el);
+    }
+    if (el.dataset["version"] !== String(scan.version)) {
+      el.innerHTML = renderTrackStack(key, scan);
+      el.dataset["version"] = String(scan.version);
+    }
+    const box = getTrackBox(track, now);
+    const scaleX = overlayCanvas.width / track.sourceSize.width;
+    const scaleY = overlayCanvas.height / track.sourceSize.height;
+    const face = {
+      height: box.height * scaleY,
+      width: box.width * scaleX,
+      x: box.x * scaleX,
+      y: box.y * scaleY,
+    };
+    const detail = detailCardRect(face, track.layout, stageWidth);
+    const placed = placeFloatCard(
+      face,
+      {
+        height: el.offsetHeight || 120,
+        width: el.offsetWidth || 228,
+      },
+      { height: stageHeight, width: stageWidth },
+      detail
+    );
+    el.style.transform = `translate(${Math.round(placed.x)}px, ${Math.round(placed.y)}px)`;
+  }
+};
+
 const setPipelineBusy = (busy: boolean): void => {
   state.pipeline.busy = busy;
   pipelineButton.disabled = busy;
@@ -391,8 +973,12 @@ const setPipelineBusy = (busy: boolean): void => {
   }
 };
 
-const renderPipelineResult = (payload: PipelineResultPayload): void => {
+const renderPipelineResult = (
+  payload: PipelineResultPayload,
+  key: string
+): void => {
   state.pipeline.result = payload;
+  finishOneTrackScan(key, payload);
   hudFace.hidden = false;
   hudResults.replaceChildren();
 
@@ -437,40 +1023,96 @@ const scanCandidates = new Map<
   }
 >();
 
-const runPipeline = async ({ manual = false } = {}): Promise<void> => {
-  if (state.pipeline.busy) {
-    return;
-  }
-
-  const sourceHeight = cameraFeed.videoHeight;
+/**
+ * Crop one tracked face out of the live video frame. Each face gets its own
+ * pipeline run so multi-face scenes attribute the right posts to the right
+ * face instead of broadcasting the first face's matches everywhere.
+ */
+const cropTrackFace = async (key: string): Promise<Blob | null> => {
+  const track = state.renderTracks.get(key);
   const sourceWidth = cameraFeed.videoWidth;
-  if (!sourceHeight || !sourceWidth) {
+  const sourceHeight = cameraFeed.videoHeight;
+  if (
+    track === undefined ||
+    !sourceWidth ||
+    !sourceHeight ||
+    !track.sourceSize.width ||
+    !track.sourceSize.height
+  ) {
+    return null;
+  }
+  const scaleX = sourceWidth / track.sourceSize.width;
+  const scaleY = sourceHeight / track.sourceSize.height;
+  const box = getTrackBox(track, performance.now());
+  // Modest client-side padding; the Python stage pads again before search.
+  const pad = 0.35;
+  const sx = Math.max(0, (box.x - box.width * pad) * scaleX);
+  const sy = Math.max(0, (box.y - box.height * pad) * scaleY);
+  const sw = Math.min(box.width * (1 + pad * 2) * scaleX, sourceWidth - sx);
+  const sh = Math.min(box.height * (1 + pad * 2) * scaleY, sourceHeight - sy);
+  if (sw < 24 || sh < 24) {
+    return null;
+  }
+  const faceCanvas = document.createElement("canvas");
+  faceCanvas.width = Math.round(sw);
+  faceCanvas.height = Math.round(sh);
+  const ctx = faceCanvas.getContext("2d");
+  if (ctx === null) {
+    return null;
+  }
+  ctx.drawImage(
+    cameraFeed,
+    sx,
+    sy,
+    sw,
+    sh,
+    0,
+    0,
+    faceCanvas.width,
+    faceCanvas.height
+  );
+  const dataUrl = faceCanvas.toDataURL("image/jpeg", 0.9);
+  const imageResponse = await fetch(dataUrl);
+  return imageResponse.blob();
+};
+
+const openProgressStream = (scanId: string): void => {
+  // Live progress stream: subscribe before POST so early stage events
+  // (detect/cache) are replayed from the server buffer, not missed.
+  try {
+    const source = new EventSource(`/api/pipeline/progress?scanId=${scanId}`);
+    state.pipeline.scanStreams.set(scanId, source);
+    source.addEventListener("message", (event: MessageEvent<string>): void => {
+      try {
+        applyScanProgress(
+          JSON.parse(event.data) as PythonPipelineProgressMessage
+        );
+      } catch {
+        console.debug("[pipeline] ignoring malformed progress event");
+      }
+    });
+    source.addEventListener("error", (): void => {
+      // POST response stays the source of truth; the server also ends the
+      // stream with scan/done. Nothing to do here.
+    });
+  } catch {
+    console.debug("[pipeline] progress stream unavailable; using fallback");
+  }
+};
+
+const runSingleScan = async (key: string): Promise<void> => {
+  const blob = await cropTrackFace(key);
+  if (blob === null) {
     return;
   }
-
-  if (manual) {
-    for (const candidate of scanCandidates.values()) {
-      candidate.lastTriggeredMs = 0;
-    }
-  } else {
-    state.pipeline.autoScans += 1;
-  }
-
-  setPipelineBusy(true);
+  beginTrackScan(key);
+  const scanId = crypto.randomUUID();
+  state.pipeline.scanSubs.set(scanId, key);
+  openProgressStream(scanId);
   try {
-    const scanCanvas = document.createElement("canvas");
-    scanCanvas.height = sourceHeight;
-    scanCanvas.width = sourceWidth;
-    const ctx = scanCanvas.getContext("2d");
-    if (ctx === null) {
-      throw new Error("scan canvas 2d context missing");
-    }
-    ctx.drawImage(cameraFeed, 0, 0, sourceWidth, sourceHeight);
-    const dataUrl = scanCanvas.toDataURL("image/jpeg", 0.9);
-    const imageResponse = await fetch(dataUrl);
-    const blob = await imageResponse.blob();
     const form = new FormData();
-    form.set("image", blob, "frame.jpg");
+    form.set("image", blob, "face.jpg");
+    form.set("scanId", scanId);
 
     const response = await fetch("/api/pipeline", {
       body: form,
@@ -483,29 +1125,98 @@ const runPipeline = async ({ manual = false } = {}): Promise<void> => {
         : {
             ...payload,
             error: payload.error ?? `scan failed (${response.status})`,
-          }
+          },
+      key
     );
   } catch (error) {
-    renderPipelineResult({
-      anchorStrategy: "none",
-      blockchain: null,
-      blockchainError: null,
-      cacheHit: false,
-      duplicate: false,
-      enginesUsed: [],
-      error: error instanceof Error ? error.message : "scan failed",
-      face: null,
-      inputFaceHash: null,
-      results: [],
-      verified: false,
-    });
+    renderPipelineResult(
+      {
+        anchorStrategy: "none",
+        blockchain: null,
+        blockchainError: null,
+        cacheHit: false,
+        duplicate: false,
+        enginesUsed: [],
+        error: error instanceof Error ? error.message : "scan failed",
+        face: null,
+        inputFaceHash: null,
+        results: [],
+        verified: false,
+      },
+      key
+    );
   } finally {
+    // Backstop: if scan/done never arrives (dropped stream), close after a
+    // grace period so trailing anchor events still land first.
+    window.setTimeout(() => {
+      closeScanStream(scanId);
+    }, 3000);
+  }
+};
+
+const pumpScanQueue = async (): Promise<void> => {
+  if (state.pipeline.activeScanKey !== null) {
+    return;
+  }
+  const key = state.pipeline.queue.shift();
+  if (key === undefined) {
     setPipelineBusy(false);
+    return;
+  }
+  if (!state.renderTracks.has(key)) {
+    await pumpScanQueue();
+    return;
+  }
+  state.pipeline.activeScanKey = key;
+  setPipelineBusy(true);
+  try {
+    await runSingleScan(key);
+  } finally {
+    if (state.pipeline.activeScanKey === key) {
+      state.pipeline.activeScanKey = null;
+    }
+    if (state.pipeline.queue.length > 0) {
+      await pumpScanQueue();
+    } else {
+      setPipelineBusy(false);
+    }
+  }
+};
+
+const enqueueScan = (key: string): void => {
+  const track = state.renderTracks.get(key);
+  if (
+    track === undefined ||
+    track.removeAfter !== null ||
+    state.pipeline.activeScanKey === key ||
+    state.pipeline.queue.includes(key)
+  ) {
+    return;
+  }
+  state.pipeline.queue.push(key);
+  void pumpScanQueue();
+};
+
+const runPipeline = ({ manual = false } = {}): void => {
+  if (manual) {
+    for (const candidate of scanCandidates.values()) {
+      candidate.lastTriggeredMs = 0;
+    }
+    let enqueued = 0;
+    for (const [key, track] of state.renderTracks.entries()) {
+      if (track.removeAfter === null) {
+        enqueueScan(key);
+        enqueued += 1;
+      }
+    }
+    if (enqueued === 0 && !state.pipeline.busy) {
+      setHudStatus("no faces to scan", "idle");
+    }
   }
 };
 
 const maybeAutoTrigger = (): void => {
-  if (state.pipeline.busy || document.hidden) {
+  if (document.hidden) {
     return;
   }
 
@@ -538,8 +1249,11 @@ const maybeAutoTrigger = (): void => {
       (neverScanned || cooledDown)
     ) {
       candidate.lastTriggeredMs = now;
-      void runPipeline();
-      return;
+      state.pipeline.autoScans += 1;
+      // Each stable face scans on its own crop; the queue runs them one at
+      // a time so every face gets its own posts instead of sharing the
+      // first face's result.
+      enqueueScan(key);
     }
   }
 
@@ -841,7 +1555,9 @@ const bootstrap = async (): Promise<void> => {
 };
 
 const renderLoop = (): void => {
+  const now = performance.now();
   camera.drawOverlay(state.renderTracks, state.sourceSize);
+  syncTrackLogs(now);
   window.requestAnimationFrame(renderLoop);
 };
 
