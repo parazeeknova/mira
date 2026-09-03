@@ -356,3 +356,167 @@ async def test_pipeline_cache_hit_emits_done_cached() -> None:
     assert cache_hit["results"] == 1
     done = next(e for e in events if e["stage"] == "done")
     assert done["cached"] is True
+
+
+@pytest.mark.asyncio
+async def test_pipeline_run_enriches_results() -> None:
+    from unittest.mock import AsyncMock
+
+    from search.search import SearchResult
+
+    settings = _make_settings()
+    fake_face = MagicMock()
+    fake_face.bbox = np.array([50, 50, 150, 150], dtype=np.float32)
+    fake_face.det_score = 0.99
+    fake_face.embedding = np.ones(512, dtype=np.float32)
+    fake_face.normed_embedding = np.ones(512, dtype=np.float32)
+
+    service = _make_dummy_service(faces=[fake_face])
+    pipeline = Pipeline(service, settings)
+    pipeline._cache = MagicMock()
+    pipeline._cache.lookup.return_value = None
+    pipeline._cache.write = MagicMock()
+    pipeline._similarity = None  # type: ignore[assignment]
+
+    raw = SearchResult(
+        url="https://linkedin.com/in/test",
+        platform="linkedin",
+        title="Test",
+        snippet=None,
+        image_url=None,
+        fetched_at=123,
+        source_strategy="serpapi",
+        engine="google_lens",
+    )
+    pipeline._search.search = AsyncMock(return_value=[raw])
+    enriched = SearchResult(
+        url="https://linkedin.com/in/test",
+        platform="linkedin",
+        title="Test",
+        snippet=None,
+        image_url=None,
+        fetched_at=123,
+        source_strategy="serpapi",
+        engine="google_lens",
+        enriched_snippet="Builds infra at Foo.",
+        social_links=(("github", "https://github.com/test"),),
+    )
+    fake_enricher = MagicMock()
+    fake_enricher.enabled = True
+    fake_enricher.enrich = AsyncMock(return_value=[enriched])
+    pipeline._enricher = fake_enricher
+
+    result = await pipeline.run(_make_image_bytes())
+    assert result.results[0].enriched_snippet == "Builds infra at Foo."
+    assert result.results[0].social_links == (("github", "https://github.com/test"),)
+    # Enriched payload is what gets cached
+    written = pipeline._cache.write.call_args
+    assert written is not None
+
+
+@pytest.mark.asyncio
+async def test_pipeline_run_enrich_failure_falls_back() -> None:
+    from unittest.mock import AsyncMock
+
+    from search.search import SearchResult
+
+    settings = _make_settings()
+    fake_face = MagicMock()
+    fake_face.bbox = np.array([50, 50, 150, 150], dtype=np.float32)
+    fake_face.det_score = 0.99
+    fake_face.embedding = np.ones(512, dtype=np.float32)
+    fake_face.normed_embedding = np.ones(512, dtype=np.float32)
+
+    service = _make_dummy_service(faces=[fake_face])
+    pipeline = Pipeline(service, settings)
+    pipeline._cache = MagicMock()
+    pipeline._cache.lookup.return_value = None
+    pipeline._cache.write = MagicMock()
+    pipeline._similarity = None  # type: ignore[assignment]
+    pipeline._search.search = AsyncMock(
+        return_value=[
+            SearchResult(
+                url="https://example.com/a",
+                platform="web",
+                title="A",
+                snippet=None,
+                image_url=None,
+                fetched_at=123,
+                source_strategy="serpapi",
+                engine="google_lens",
+            )
+        ]
+    )
+    fake_enricher = MagicMock()
+    fake_enricher.enabled = True
+    fake_enricher.enrich = AsyncMock(side_effect=RuntimeError("firecrawl down"))
+    pipeline._enricher = fake_enricher
+
+    result = await pipeline.run(_make_image_bytes())
+    assert result.anchor_strategy == "search"
+    assert len(result.results) == 1
+    assert result.results[0].enriched_snippet is None
+
+
+@pytest.mark.asyncio
+async def test_pipeline_cache_hit_enriches_results() -> None:
+    from unittest.mock import AsyncMock
+
+    from search.search import SearchResult
+
+    settings = _make_settings()
+    fake_face = MagicMock()
+    fake_face.bbox = np.array([50, 50, 150, 150], dtype=np.float32)
+    fake_face.det_score = 0.9
+    fake_face.embedding = np.ones(512, dtype=np.float32)
+    fake_face.normed_embedding = np.ones(512, dtype=np.float32)
+
+    service = _make_dummy_service(faces=[fake_face])
+    pipeline = Pipeline(service, settings)
+    cached = MagicMock()
+    cached.top_url = "https://linkedin.com/in/test"
+    cached.similarity = 0.9
+    cached.engines_used = ["google_lens"]
+    cached.results = [
+        SearchResult(
+            url="https://linkedin.com/in/test",
+            platform="linkedin",
+            title="Test",
+            snippet=None,
+            image_url=None,
+            fetched_at=123,
+            source_strategy="serpapi",
+            engine="google_lens",
+        )
+    ]
+    pipeline._cache = MagicMock()
+    pipeline._cache.lookup.return_value = cached
+    pipeline._search.search = AsyncMock(return_value=[])
+
+    enriched = SearchResult(
+        url="https://linkedin.com/in/test",
+        platform="linkedin",
+        title="Test",
+        snippet=None,
+        image_url=None,
+        fetched_at=123,
+        source_strategy="serpapi",
+        engine="google_lens",
+        enriched_snippet="Builds infra.",
+        social_links=(("github", "https://github.com/test"),),
+    )
+    fake_enricher = MagicMock()
+    fake_enricher.enabled = True
+    fake_enricher.enrich = AsyncMock(return_value=[enriched])
+    pipeline._enricher = fake_enricher
+
+    events: list[dict[str, object]] = []
+
+    async def collect(event: dict[str, object]) -> None:
+        events.append(event)
+
+    result = await pipeline.run(_make_image_bytes(), on_progress=collect)
+    assert result.cache_hit is True
+    assert result.results[0].enriched_snippet == "Builds infra."
+    # search stage never ran on a hit; the enricher was invoked directly
+    fake_enricher.enrich.assert_awaited_once()

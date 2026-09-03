@@ -40,6 +40,11 @@ class Settings:
     facecheck_api_token: str | None = None
     facecheck_max_results: int = 8
     facecheck_demo: bool = False
+    # --- Firecrawl enrichment (post-page scrape) ---
+    firecrawl_url: str | None = None
+    firecrawl_api_key: str | None = None
+    firecrawl_max_targets: int = 3
+    firecrawl_timeout_seconds: float = 15.0
     # --- Pipeline thresholds ---
     cosine_threshold: float = 0.35
     # --- Cache (Stage 2 / 5b) ---
@@ -123,6 +128,10 @@ def load_settings() -> Settings:
         facecheck_api_token=os.getenv("FACECHECK_API_TOKEN") or None,
         facecheck_max_results=int(os.getenv("FACECHECK_MAX_RESULTS", "8")),
         facecheck_demo=os.getenv("FACECHECK_DEMO", "false").lower() == "true",
+        firecrawl_url=os.getenv("FIRECRAWL_URL") or None,
+        firecrawl_api_key=os.getenv("FIRECRAWL_API_KEY") or None,
+        firecrawl_max_targets=int(os.getenv("FIRECRAWL_MAX_TARGETS", "3")),
+        firecrawl_timeout_seconds=float(os.getenv("FIRECRAWL_TIMEOUT_SECONDS", "15")),
         cosine_threshold=float(os.getenv("COSINE_THRESHOLD", "0.35")),
         cache_threshold=float(os.getenv("CACHE_THRESHOLD", "0.60")),
         cache_db_path=os.getenv("CACHE_DB_PATH", "../../../data/mira_cache.db"),

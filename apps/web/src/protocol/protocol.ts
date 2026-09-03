@@ -186,6 +186,7 @@ export interface PythonPipelineRunMessage {
 export interface PipelineCandidateResult {
   base64?: string;
   engine: PipelineEngine;
+  enrichedSnippet?: string | null;
   fetchedAt: number;
   finalScore: number | null;
   imageUrl: string | null;
@@ -193,6 +194,7 @@ export interface PipelineCandidateResult {
   platform: PipelinePlatform;
   similarity: number | null;
   snippet: string | null;
+  socialLinks?: { label: string; url: string }[];
   sourceStrategy:
     | "embedding-fallback"
     | "facecheck"
@@ -222,6 +224,7 @@ export type PipelineProgressStage =
   | "cache"
   | "detect"
   | "done"
+  | "enrich"
   | "engine"
   | "rank"
   | "scan"
@@ -257,6 +260,7 @@ export interface PythonPipelineProgressMessage {
   contentHash?: string;
   count?: number;
   detail?: string;
+  enriched?: number;
   engine?: string;
   engines?: string[] | Record<string, number>;
   error?: string;

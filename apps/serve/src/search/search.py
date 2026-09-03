@@ -92,6 +92,9 @@ class SearchResult:
     multi_source_count: int = 0
     similarity: float | None = None
     final_score: float | None = None
+    # Firecrawl enrichment (Stage 4.5): page bio text + social/portfolio links
+    enriched_snippet: str | None = None
+    social_links: tuple[tuple[str, str], ...] = ()
 
     def to_protocol_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -118,6 +121,12 @@ class SearchResult:
             d["similarity"] = round(float(self.similarity), 4)
         if self.final_score is not None:
             d["finalScore"] = round(float(self.final_score), 4)
+        if self.enriched_snippet is not None:
+            d["enrichedSnippet"] = self.enriched_snippet
+        if self.social_links:
+            d["socialLinks"] = [
+                {"label": label, "url": url} for label, url in self.social_links
+            ]
         return d
 
 

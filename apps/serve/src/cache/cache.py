@@ -314,6 +314,13 @@ class EmbeddingCache:
                             final_score = item.get("finalScore") or item.get(
                                 "final_score"
                             )
+                            enriched_snippet = item.get("enrichedSnippet")
+                            raw_socials = item.get("socialLinks") or []
+                            social_links = tuple(
+                                (str(entry.get("label", "")), str(entry.get("url", "")))
+                                for entry in raw_socials
+                                if isinstance(entry, dict) and entry.get("url")
+                            )
                             results.append(
                                 _SR(
                                     url=url,
@@ -342,6 +349,10 @@ class EmbeddingCache:
                                     final_score=float(final_score)
                                     if isinstance(final_score, (int, float))
                                     else None,
+                                    enriched_snippet=enriched_snippet
+                                    if isinstance(enriched_snippet, str)
+                                    else None,
+                                    social_links=social_links,
                                 )
                             )
                         except Exception:

@@ -308,6 +308,7 @@ input[type="range"]::-moz-range-thumb {
 
 .track-log-stage[data-stage="scanning"],
 .track-log-stage[data-stage="searching"],
+.track-log-stage[data-stage="enriching"],
 .track-log-stage[data-stage="anchoring"] {
   color: #fff;
 }
@@ -390,6 +391,24 @@ input[type="range"]::-moz-range-thumb {
   color: var(--dim);
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+.track-post-socials {
+  display: flex;
+  gap: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.track-post-socials a {
+  color: var(--dim);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-post-socials a:hover {
+  color: #fff;
 }
 
 .track-chain-card {

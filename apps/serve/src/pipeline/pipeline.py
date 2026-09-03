@@ -15,6 +15,7 @@ import numpy as np
 from PIL import Image
 
 from config.config import Settings
+from enrich.firecrawl import FirecrawlEnricher
 from search.search import ReverseImageSearch, SearchResult
 
 # Progress events stream stage updates (detect → cache → per-engine search →
@@ -114,6 +115,7 @@ class Pipeline:
         cache: EmbeddingCache | None = None,
         search: ReverseImageSearch | None = None,
         similarity: ArcFaceSimilarity | None = None,
+        enricher: FirecrawlEnricher | None = None,
     ) -> None:
         self._service = service
         self._settings = settings
@@ -143,6 +145,10 @@ class Pipeline:
             except Exception as e:
                 logger.warning("Pipeline: similarity init failed: %s", e)
                 self._similarity = None  # type: ignore[assignment]
+
+        self._enricher = (
+            enricher if enricher is not None else FirecrawlEnricher(settings)
+        )
 
     async def run(
         self,
@@ -200,19 +206,46 @@ class Pipeline:
                             "results": len(cached.results),
                         }
                     )
+                    # Cache hits skip search (stages 3-5) but still get
+                    # Firecrawl enrichment so the posts card has bio text.
+                    hit_results = list(cached.results)
+                    if self._enricher.enabled and hit_results:
+                        t_enrich = time.perf_counter()
+                        try:
+                            hit_results = await self._enricher.enrich(
+                                hit_results, on_progress=emit
+                            )
+                            logger.info(
+                                "[pipeline] stage4.5 enrich on cache-hit: "
+                                "%d/%d pages enriched (%.1fs)",
+                                sum(
+                                    1
+                                    for r in hit_results
+                                    if r.enriched_snippet or r.social_links
+                                ),
+                                len(hit_results),
+                                time.perf_counter() - t_enrich,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "[pipeline] stage4.5 enrich on cache-hit "
+                                "failed, using cached results: %s: %s",
+                                e.__class__.__name__,
+                                e,
+                            )
                     await emit(
                         {
                             "stage": "done",
                             "state": "done",
                             "strategy": "search",
-                            "results": len(cached.results),
+                            "results": len(hit_results),
                             "engines": list(cached.engines_used),
                             "cached": True,
                         }
                     )
                     return PipelineResult(
                         face=face,
-                        results=cached.results,
+                        results=hit_results,
                         anchor_strategy="search",
                         engines_used=cached.engines_used,
                         cache_hit=True,
@@ -323,6 +356,26 @@ class Pipeline:
 
         if results:
             engines = sorted({r.engine for r in results})
+            # Stage 4.5: Firecrawl enrichment — bio text + social links for
+            # the posts card. Best-effort; failures keep the raw results.
+            if self._enricher.enabled:
+                t_enrich = time.perf_counter()
+                try:
+                    results = await self._enricher.enrich(results, on_progress=emit)
+                    logger.info(
+                        "[pipeline] stage4.5 enrich: %d/%d pages enriched (%.1fs)",
+                        sum(1 for r in results if r.enriched_snippet or r.social_links),
+                        len(results),
+                        time.perf_counter() - t_enrich,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "[pipeline] stage4.5 enrich failed, using raw results: %s: %s",
+                        e.__class__.__name__,
+                        e,
+                    )
+            else:
+                logger.info("[pipeline] stage4.5 enrich skipped (FIRECRAWL_URL unset)")
             logger.info(
                 "[pipeline] stage5 rank result: %d results, engines=%s, top=%s",
                 len(results),
@@ -478,6 +531,10 @@ class Pipeline:
     async def aclose(self) -> None:
         try:
             await self._search.aclose()
+        except Exception:
+            pass
+        try:
+            await self._enricher.aclose()
         except Exception:
             pass
         try:

@@ -35,11 +35,13 @@ interface PipelineResultPayload {
   results: {
     base64?: string;
     engine: string;
+    enrichedSnippet?: string | null;
     imageUrl?: string | null;
     multiSourceCount: number;
     platform: string;
     similarity?: number | null;
     snippet: string | null;
+    socialLinks?: { label: string; url: string }[];
     title: string | null;
     url: string;
   }[];
@@ -125,6 +127,7 @@ const trackLogs = requiredNode<HTMLElement>("#track-logs");
 type TrackStage =
   | "anchoring"
   | "done"
+  | "enriching"
   | "error"
   | "idle"
   | "scanning"
@@ -133,10 +136,12 @@ type TrackStage =
 interface TrackPostHit {
   base64?: string | undefined;
   engine: string;
+  enrichedSnippet?: string | null | undefined;
   imageUrl?: string | null | undefined;
   platform: string;
   similarity?: number | null | undefined;
   snippet?: string | null | undefined;
+  socialLinks?: { label: string; url: string }[] | undefined;
   title: string | null;
   url: string;
 }
@@ -602,6 +607,21 @@ const applyAnchorProgress = (
   }
 };
 
+const applyEnrichProgress = (
+  key: string,
+  event: PythonPipelineProgressMessage
+): void => {
+  if (event.state === "start") {
+    pushTrackLog(key, "enriching", `enriching ${event.count ?? 0} pages…`);
+  } else if (event.state === "done") {
+    pushTrackLog(
+      key,
+      "enriching",
+      `enriched ${event.enriched ?? 0}/${event.count ?? 0}`
+    );
+  }
+};
+
 const applyStageProgress = (
   key: string,
   event: PythonPipelineProgressMessage
@@ -675,6 +695,8 @@ const applyKeyProgress = (
     applyEngineProgress(key, event);
   } else if (event.stage === "anchor") {
     applyAnchorProgress(key, event);
+  } else if (event.stage === "enrich") {
+    applyEnrichProgress(key, event);
   } else {
     applyStageProgress(key, event);
   }
@@ -752,10 +774,12 @@ const finishOneTrackScan = (
   const posts: TrackPostHit[] = payload.results.map((post) => ({
     base64: post.base64,
     engine: post.engine,
+    enrichedSnippet: post.enrichedSnippet,
     imageUrl: post.imageUrl,
     platform: post.platform,
     similarity: post.similarity ?? null,
     snippet: post.snippet,
+    socialLinks: post.socialLinks,
     title: post.title,
     url: post.url,
   }));
@@ -836,11 +860,21 @@ const renderTrackPostsCard = (scan: TrackScan): string => {
         thumb === null
           ? ""
           : `<img class="track-post-thumb" src="${escapeHtml(thumb)}" alt="" loading="lazy" onerror="this.remove()" />`;
+      const desc = post.enrichedSnippet ?? post.snippet ?? null;
       const snippetHtml =
-        post.snippet === null || post.snippet === undefined
+        desc === null || desc === ""
           ? ""
-          : `<div class="track-post-snippet">${escapeHtml(post.snippet)}</div>`;
-      return `<div class="track-post">${thumbHtml}<div class="track-post-body"><div class="track-post-top"><a href="${url}" target="_blank" rel="noopener">${platform} · ${title}</a><span class="sim">${escapeHtml(sim)}</span></div>${snippetHtml}</div></div>`;
+          : `<div class="track-post-snippet">${escapeHtml(desc)}</div>`;
+      const socialsHtml =
+        post.socialLinks === undefined || post.socialLinks.length === 0
+          ? ""
+          : `<div class="track-post-socials">${post.socialLinks
+              .map(
+                (social) =>
+                  `<a href="${escapeHtml(social.url)}" target="_blank" rel="noopener">${escapeHtml(social.label)}</a>`
+              )
+              .join("")}</div>`;
+      return `<div class="track-post">${thumbHtml}<div class="track-post-body"><div class="track-post-top"><a href="${url}" target="_blank" rel="noopener">${platform} · ${title}</a><span class="sim">${escapeHtml(sim)}</span></div>${snippetHtml}${socialsHtml}</div></div>`;
     })
     .join("");
   return `<section class="track-posts-card"><div class="track-log-head"><span>posts · ${scan.posts.length}</span></div>${posts}</section>`;
